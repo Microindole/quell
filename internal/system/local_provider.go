@@ -2,122 +2,131 @@ package system
 
 import (
 	"path/filepath"
-	"strings"
+	"sync"
 
 	"github.com/Microindole/quell/internal/core"
 	"github.com/shirou/gopsutil/v3/net"
 	"github.com/shirou/gopsutil/v3/process"
 )
 
-// LocalProvider 实现了 core.Provider 接口
-type LocalProvider struct{}
-
-func NewLocalProvider() *LocalProvider {
-	return &LocalProvider{}
+type LocalProvider struct {
+	mu        sync.Mutex
+	procCache map[int32]*process.Process
 }
 
-// ListProcesses 扫描本地 TCP 监听端口
+func NewLocalProvider() *LocalProvider {
+	return &LocalProvider{
+		procCache: make(map[int32]*process.Process),
+	}
+}
+
+// ListProcesses 获取全量进程列表
 func (l *LocalProvider) ListProcesses() ([]core.Process, error) {
-	conns, err := net.Connections("tcp")
+	// 1. 获取所有运行中的进程 ID (不再局限于 TCP 连接)
+	pids, err := process.Pids()
 	if err != nil {
 		return nil, err
 	}
 
+	// 2. 预取所有 TCP 连接信息，建立 PID -> Port 的映射索引
+	// 这样就不用对每个进程都去查一次网络，极大提升性能
+	portMap := make(map[int32]int)
+	if conns, err := net.Connections("tcp"); err == nil {
+		for _, c := range conns {
+			if c.Status == "LISTEN" && c.Pid > 0 {
+				portMap[c.Pid] = int(c.Laddr.Port)
+			}
+		}
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	var results []core.Process
+	seenPids := make(map[int32]bool)
 
-	for _, conn := range conns {
-		if conn.Status != "LISTEN" {
-			continue
-		}
-		if conn.Pid == 0 {
-			continue
-		}
+	for _, pid := range pids {
+		seenPids[pid] = true
 
-		// 1. 基础信息
-		pid := conn.Pid
-		port := int(conn.Laddr.Port)
-
-		// 2. 获取 Process 对象
-		p, err := process.NewProcess(pid)
-		if err != nil {
-			// 进程可能刚消失
-			continue
+		// --- 缓存复用逻辑 (解决 CPU 0% 问题) ---
+		proc, exists := l.procCache[pid]
+		if !exists {
+			newProc, err := process.NewProcess(pid)
+			if err != nil {
+				continue // 进程可能刚结束
+			}
+			proc = newProc
+			l.procCache[pid] = proc
 		}
 
-		// 3. 填充详细信息 (Phase 1 新增)
-		// 注意：这些操作可能会因为权限问题失败，我们尽量获取，失败就给默认值
-		name := l.getName(p)
+		// --- 核心过滤逻辑 ---
+		// 尝试获取名字，如果失败（Access Denied），说明我们没权限看它
+		// 直接 continue 跳过，不显示在列表中
+		name, err := proc.Name()
+		if err != nil || name == "" {
+			continue
+		}
 
-		cmdline, _ := p.Cmdline()
-
-		// 获取内存信息 (RSS)
-		memInfo, _ := p.MemoryInfo()
+		// 获取其他信息
+		cpuPercent, _ := proc.Percent(0)
+		memInfo, _ := proc.MemoryInfo()
 		var memUsage uint64
 		if memInfo != nil {
 			memUsage = memInfo.RSS
 		}
 
-		// 获取 CPU (注意：Percent(0) 表示计算从上次调用以来的间隔，第一次调用可能不准，但在列表中还行)
-		cpuPercent, _ := p.Percent(0)
+		user, _ := proc.Username()
 
-		// 获取用户名
-		user, _ := p.Username()
+		// 组装名称 (辅助函数优化显示)
+		displayName := l.refineName(proc, name)
 
 		results = append(results, core.Process{
 			PID:         pid,
-			Name:        name,
-			Port:        port,
-			Protocol:    "TCP",
-			Cmdline:     cmdline,
+			Name:        displayName,
+			Port:        portMap[pid], // 如果该进程有监听端口，这里会自动填上，否则是 0
+			Protocol:    "TCP",        // 默认 TCP
+			Cmdline:     l.getCmdlineSafe(proc),
 			MemoryUsage: memUsage,
 			CpuPercent:  cpuPercent,
 			User:        user,
 		})
 	}
 
+	// 🧹 清理已退出的进程缓存 (防止内存泄漏)
+	for cachedPid := range l.procCache {
+		if !seenPids[cachedPid] {
+			delete(l.procCache, cachedPid)
+		}
+	}
+
 	return results, nil
 }
 
-// Kill 杀进程
 func (l *LocalProvider) Kill(pid int32, force bool) error {
 	p, err := process.NewProcess(pid)
 	if err != nil {
 		return err
 	}
-
 	if force {
-		// 🔪 强制击杀 (SIGKILL) - 进程没机会留遗言
 		return p.Kill()
 	}
-
-	// 🏳️ 优雅请求 (SIGTERM) - 进程可以捕获并清理
 	return p.Terminate()
 }
 
-// getName 辅助函数：获取进程名
-func (l *LocalProvider) getName(p *process.Process) string {
-	// 1. 尝试获取标准名称
-	name, _ := p.Name()
-	if name != "" {
-		return name
+// 辅助：获取更友好的进程名
+func (l *LocalProvider) refineName(p *process.Process, rawName string) string {
+	if rawName != "" {
+		return rawName
 	}
-
-	// 2. 尝试获取执行路径的基础名
 	exe, _ := p.Exe()
 	if exe != "" {
 		return filepath.Base(exe)
 	}
+	return "Unknown"
+}
 
-	// 3. 尝试命令行
-	cmdline, _ := p.Cmdline()
-	if cmdline != "" {
-		parts := strings.Fields(cmdline)
-		if len(parts) > 0 {
-			return filepath.Base(parts[0])
-		}
-	}
-
-	// 🔴 修改这里：如果都获取不到，说明很可能是权限不足
-	// 返回一个提示，或者保留 <Unknown> 但心里有数
-	return "<System/Access Denied>"
+// 辅助：安全获取命令行，失败返回空
+func (l *LocalProvider) getCmdlineSafe(p *process.Process) string {
+	cmd, _ := p.Cmdline()
+	return cmd
 }

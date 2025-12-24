@@ -13,23 +13,23 @@ var (
 
 	// 详情页标题样式
 	detailTitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FAFAFA")).
-				Background(lipgloss.Color("#7D56F4")).
-				Padding(0, 1).
-				Bold(true)
+		Foreground(lipgloss.Color("#FAFAFA")).
+		Background(lipgloss.Color("#7D56F4")).
+		Padding(0, 1).
+		Bold(true)
 
 	// 详情页字段名样式
 	labelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7D56F4")).
-			Bold(true).
-			Width(10) // 固定宽度对齐
+		Foreground(lipgloss.Color("#7D56F4")).
+		Bold(true).
+		Width(10) // 固定宽度对齐
 
 	// 详情内容框样式
 	detailBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7D56F4")).
-			Padding(1, 2).
-			MarginTop(1)
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#7D56F4")).
+		Padding(1, 2).
+		MarginTop(1)
 )
 
 func (m Model) View() string {
@@ -40,15 +40,20 @@ func (m Model) View() string {
 	var content string
 
 	if m.inspecting && m.selected != nil {
-		// 🔴 渲染详情页
 		content = m.renderDetailView()
 	} else {
-		// 🔵 渲染列表页
 		content = m.list.View()
 	}
 
-	// 组合：主内容 + 状态栏
-	statusBar := components.RenderStatusBar(m.status)
+	authIcon := "👤 User"
+	if m.isAdmin {
+		authIcon = "⚡ Admin"
+	}
+
+	statusText := fmt.Sprintf("%s | %s | Sort: %s", authIcon, m.status, m.getSortName())
+
+	statusBar := components.RenderStatusBar(statusText)
+
 	return appStyle.Render(content + "\n" + statusBar)
 }
 
