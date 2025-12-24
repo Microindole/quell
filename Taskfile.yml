@@ -1,0 +1,38 @@
+version: '3'
+
+# 🟢 1. 将变量定义移动到这里 (全局变量)
+vars:
+  BINARY_NAME: '{{if eq OS "windows"}}quell.exe{{else}}quell{{end}}'
+
+tasks:
+  default:
+    cmds:
+      - task: run
+
+  run:
+    desc: 直接编译并运行代码 (开发用 - 慢)
+    cmds:
+      - go run ./cmd/quell/main.go
+
+  build:
+    desc: 编译生成二进制文件到 bin 目录
+    cmds:
+      # 这里的 {{.BINARY_NAME}} 现在能正确读取了
+      - cmd: echo "Building {{.BINARY_NAME}}..."
+      - cmd: go build -o bin/{{.BINARY_NAME}} ./cmd/quell/main.go
+      - cmd: echo "Build success! Output! bin/{{.BINARY_NAME}}"
+
+  exec:
+    desc: 直接运行 bin 目录下的 exe (需先 build - 快)
+    # 依赖检查：确保文件存在，否则先自动运行 build
+    deps: [build]
+    cmds:
+      # Windows PowerShell 兼容写法
+      - powershell -Command "./bin/{{.BINARY_NAME}}"
+
+  clean:
+    desc: 删除构建产物
+    cmds:
+      - cmd: rm -rf bin/
+      - cmd: echo "Cleaned."
+    ignore_error: true

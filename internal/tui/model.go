@@ -1,64 +1,69 @@
 package tui
 
 import (
-	"github.com/Microindole/quell/internal/sys"
-	"github.com/charmbracelet/bubbles/key"
+	"github.com/Microindole/quell/internal/core"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type Model struct {
 	list    list.Model
+	svc     *core.Service
+	keys    KeyMap // 🟢 新增：持有快捷键配置
 	loading bool
-	// 👇 新增：用于显示底部状态栏的信息
-	status string
+	status  string
 }
 
-func NewModel() Model {
-	items := []list.Item{}
+func NewModel(svc *core.Service) Model {
+	var items []list.Item
 
+	// 初始化列表
 	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
 	l.Title = "Quell - Process Killer"
+	l.SetShowHelp(false) // 禁用 list 自带的帮助，我们自己控制
 
-	// 设置左下角的帮助文本
-	l.AdditionalFullHelpKeys = func() []key.Binding {
-		return []key.Binding{
-			key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "kill process")),
-		}
-	}
+	// 初始化快捷键
+	keys := DefaultKeyMap()
 
 	return Model{
 		list:    l,
+		svc:     svc,
+		keys:    keys,
 		loading: true,
-		status:  "Scanning ports...", // 初始状态
+		status:  "Scanning ports...",
 	}
 }
 
-// 定义一个消息类型，告诉 Update 进程杀完了
 type processKilledMsg struct{ err error }
 
-// Init 保持不变
 func (m Model) Init() tea.Cmd {
-	return refreshList
+	// 启动时刷新列表
+	return m.refreshListCmd()
 }
 
-// 辅助函数：刷新列表的指令
-func refreshList() tea.Msg {
-	procs, err := sys.GetProcesses()
-	if err != nil {
-		return nil
-	}
-	items := make([]list.Item, len(procs))
-	for i, p := range procs {
-		items[i] = p
-	}
-	return items
-}
-
-// 辅助函数：杀进程的指令
-func killProcess(pid int32) tea.Cmd {
+// 辅助函数：刷新列表的 Cmd
+func (m Model) refreshListCmd() tea.Cmd {
 	return func() tea.Msg {
-		err := sys.KillProcess(pid)
+		// 调用 Service 获取数据
+		procs, err := m.svc.GetProcesses()
+		if err != nil {
+			return nil // 或者返回一个 errMsg
+		}
+
+		// 将 core.Process 转换为 list.Item 接口
+		items := make([]list.Item, len(procs))
+		for i, p := range procs {
+			items[i] = p
+		}
+		return items
+	}
+}
+
+// 辅助函数：杀进程的 Cmd
+func (m Model) killProcessCmd(pid int32) tea.Cmd {
+	return func() tea.Msg {
+		// 调用 Service 杀进程
+		err := m.svc.Kill(pid)
 		return processKilledMsg{err: err}
 	}
 }

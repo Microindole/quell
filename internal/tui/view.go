@@ -1,38 +1,23 @@
 package tui
 
 import (
+	"github.com/Microindole/quell/internal/tui/components"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// 定义简单的样式
-var (
-	appStyle    = lipgloss.NewStyle().Padding(1, 2)
-	statusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4")).
-			Padding(0, 1)
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#FF0000")).
-			Padding(0, 1)
-)
+var appStyle = lipgloss.NewStyle().Padding(1, 2)
 
 func (m Model) View() string {
 	if m.loading {
-		return "Loading processes..."
+		return appStyle.Render("Loading processes...")
 	}
 
-	// 渲染状态栏
-	// 这里简单判断一下，如果 status 包含 "Error" 就用红色背景，否则紫色
-	var statusBar string
-	if len(m.status) > 0 {
-		if len(m.status) >= 5 && m.status[:5] == "Error" {
-			statusBar = errorStyle.Render(m.status)
-		} else {
-			statusBar = statusStyle.Render(m.status)
-		}
-	}
+	// 1. 渲染列表
+	listView := m.list.View()
 
-	// 组合：列表 + 换行 + 状态栏
-	return appStyle.Render(m.list.View() + "\n" + statusBar)
+	// 2. 渲染状态栏 (使用新组件)
+	statusBar := components.RenderStatusBar(m.status)
+
+	// 3. 组合
+	return appStyle.Render(listView + "\n" + statusBar)
 }
