@@ -2,6 +2,7 @@ package tui
 
 import (
 	"github.com/Microindole/quell/internal/sys"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -9,63 +10,55 @@ import (
 type Model struct {
 	list    list.Model
 	loading bool
-	err     error
+	// 👇 新增：用于显示底部状态栏的信息
+	status string
 }
 
 func NewModel() Model {
-	// 初始化列表
-	items := []list.Item{} // 初始为空
+	items := []list.Item{}
 
-	// 设置列表代理 (默认宽高，稍后会自适应)
 	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
-	l.Title = "Quell - Processes"
+	l.Title = "Quell - Process Killer"
+
+	// 设置左下角的帮助文本
+	l.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "kill process")),
+		}
+	}
 
 	return Model{
 		list:    l,
 		loading: true,
+		status:  "Scanning ports...", // 初始状态
 	}
 }
 
-// Init: 启动时加载数据
+// 定义一个消息类型，告诉 Update 进程杀完了
+type processKilledMsg struct{ err error }
+
+// Init 保持不变
 func (m Model) Init() tea.Cmd {
-	// 这是一个异步指令，去调用 sys 层获取数据
+	return refreshList
+}
+
+// 辅助函数：刷新列表的指令
+func refreshList() tea.Msg {
+	procs, err := sys.GetProcesses()
+	if err != nil {
+		return nil
+	}
+	items := make([]list.Item, len(procs))
+	for i, p := range procs {
+		items[i] = p
+	}
+	return items
+}
+
+// 辅助函数：杀进程的指令
+func killProcess(pid int32) tea.Cmd {
 	return func() tea.Msg {
-		procs, err := sys.GetProcesses()
-		if err != nil {
-			return nil // 简单处理
-		}
-		// 把 domain.Process 转换为 list.Item
-		items := make([]list.Item, len(procs))
-		for i, p := range procs {
-			items[i] = p
-		}
-		return items // 发送数据消息
+		err := sys.KillProcess(pid)
+		return processKilledMsg{err: err}
 	}
-}
-
-// View 和 Update 稍后拆分，现在先简单写在一起测试
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
-			return m, tea.Quit
-		}
-
-	case tea.WindowSizeMsg:
-		m.list.SetWidth(msg.Width)
-		m.list.SetHeight(msg.Height)
-
-	case []list.Item: // 接收到 Init 返回的数据
-		cmd := m.list.SetItems(msg)
-		m.loading = false
-		return m, cmd
-	}
-
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
-}
-
-func (m Model) View() string {
-	return m.list.View()
 }
