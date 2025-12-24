@@ -29,31 +29,49 @@ func (l *LocalProvider) ListProcesses() ([]core.Process, error) {
 		if conn.Status != "LISTEN" {
 			continue
 		}
-
-		// Windows 系统进程特殊处理
 		if conn.Pid == 0 {
 			continue
 		}
-		if conn.Pid == 4 {
-			results = append(results, core.Process{
-				PID:      conn.Pid,
-				Name:     "System",
-				Port:     int(conn.Laddr.Port),
-				Protocol: "TCP",
-			})
+
+		// 1. 基础信息
+		pid := conn.Pid
+		port := int(conn.Laddr.Port)
+
+		// 2. 获取 Process 对象
+		p, err := process.NewProcess(pid)
+		if err != nil {
+			// 进程可能刚消失
 			continue
 		}
 
-		p, err := process.NewProcess(conn.Pid)
-		if err != nil {
-			continue
+		// 3. 填充详细信息 (Phase 1 新增)
+		// 注意：这些操作可能会因为权限问题失败，我们尽量获取，失败就给默认值
+		name := l.getName(p)
+
+		cmdline, _ := p.Cmdline()
+
+		// 获取内存信息 (RSS)
+		memInfo, _ := p.MemoryInfo()
+		var memUsage uint64
+		if memInfo != nil {
+			memUsage = memInfo.RSS
 		}
+
+		// 获取 CPU (注意：Percent(0) 表示计算从上次调用以来的间隔，第一次调用可能不准，但在列表中还行)
+		cpuPercent, _ := p.Percent(0)
+
+		// 获取用户名
+		user, _ := p.Username()
 
 		results = append(results, core.Process{
-			PID:      conn.Pid,
-			Name:     l.getName(p),
-			Port:     int(conn.Laddr.Port),
-			Protocol: "TCP",
+			PID:         pid,
+			Name:        name,
+			Port:        port,
+			Protocol:    "TCP",
+			Cmdline:     cmdline,
+			MemoryUsage: memUsage,
+			CpuPercent:  cpuPercent,
+			User:        user,
 		})
 	}
 
@@ -61,12 +79,19 @@ func (l *LocalProvider) ListProcesses() ([]core.Process, error) {
 }
 
 // Kill 杀进程
-func (l *LocalProvider) Kill(pid int32) error {
+func (l *LocalProvider) Kill(pid int32, force bool) error {
 	p, err := process.NewProcess(pid)
 	if err != nil {
 		return err
 	}
-	return p.Kill()
+
+	if force {
+		// 🔪 强制击杀 (SIGKILL) - 进程没机会留遗言
+		return p.Kill()
+	}
+
+	// 🏳️ 优雅请求 (SIGTERM) - 进程可以捕获并清理
+	return p.Terminate()
 }
 
 // getName 辅助函数：获取进程名

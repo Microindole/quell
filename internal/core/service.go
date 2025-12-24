@@ -15,6 +15,6 @@ func (s *Service) GetProcesses() ([]Process, error) {
 }
 
 // Kill 终止进程
-func (s *Service) Kill(pid int32) error {
-	return s.provider.Kill(pid)
+func (s *Service) Kill(pid int32, force bool) error {
+	return s.provider.Kill(pid, force)
 }
