@@ -2,7 +2,11 @@
 
 package system
 
-import "os"
+import (
+	"os"
+
+	"github.com/shirou/gopsutil/v3/process"
+)
 
 func IsAdmin() bool {
 	return os.Geteuid() == 0

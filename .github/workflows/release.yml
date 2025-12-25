@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    # 只有当推送到以 "v" 开头的标签时才触发 (例如 v1.0.0, v0.1.0)
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 必须拉取所有历史记录，GoReleaser 才能生成 Changelog
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21' # 或者你当前使用的 Go 版本
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          # 只发布 release，不发布 snapshot
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          # GitHub 自动提供的 Token，无需手动设置
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

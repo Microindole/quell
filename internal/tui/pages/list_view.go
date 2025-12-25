@@ -43,6 +43,34 @@ var (
 `
 )
 
+// SelectableProcess
+// 它的作用是仅仅在 UI 层重写 Title，加上选中标记
+type SelectableProcess struct {
+	core.Process
+	Selected     bool
+	ShowCheckbox bool
+}
+
+func (s SelectableProcess) Title() string {
+	// 如果不在多选模式，直接返回原始标题 (干干净净，没有 [ ])
+	if !s.ShowCheckbox {
+		return s.Process.Title()
+	}
+
+	// 如果在多选模式，显示 [x] 或 [ ]
+	prefix := lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).Render("[ ] ")
+	if s.Selected {
+		prefix = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Render("[x] ")
+	}
+	return prefix + s.Process.Title()
+}
+
+func (s SelectableProcess) FilterValue() string {
+	return s.Process.FilterValue()
+}
+
+type ClearSelectionMsg struct{}
+
 type ListView struct {
 	state          *SharedState
 	list           list.Model
@@ -52,6 +80,8 @@ type ListView struct {
 	loading        bool
 	status         string
 	treeMode       bool
+	selectedPids   map[int32]bool
+	rawProcesses   []core.Process
 }
 
 func NewListView(state *SharedState, sortIdx int, treeMode bool) *ListView {
@@ -68,6 +98,7 @@ func NewListView(state *SharedState, sortIdx int, treeMode bool) *ListView {
 		treeMode:       treeMode,
 		loading:        true,
 		status:         "Scanning...",
+		selectedPids:   make(map[int32]bool),
 	}
 	if treeMode {
 		v.status = "Wait for scan (Tree View)..."
@@ -92,48 +123,28 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		v.list.SetSize(msg.Width-4, msg.Height-4)
 
+	case ClearSelectionMsg:
+		v.selectedPids = make(map[int32]bool) // 清空 map
+		v.updateListItems()                   // 强制刷新列表 UI (去掉 [x])
+		return v, nil
+
 	case TickMsg:
 		return v, v.refreshListCmd()
 
 	case []list.Item:
-		v.loading = false // 加载完成，Loading 界面消失
-
-		delegate := list.NewDefaultDelegate()
-		if v.treeMode {
-			delegate.ShowDescription = false
-			delegate.SetSpacing(0)
-		} else {
-			delegate.ShowDescription = true
-			delegate.SetSpacing(0)
-		}
-		v.list.SetDelegate(delegate)
-
 		var rawProcs []core.Process
 		for _, item := range msg {
-			rawProcs = append(rawProcs, item.(core.Process))
-		}
-		var finalItems []list.Item
-		if v.treeMode {
-			treeProcs := BuildTree(rawProcs)
-			finalItems = make([]list.Item, len(treeProcs))
-			for i, p := range treeProcs {
-				finalItems[i] = p
+			if p, ok := item.(core.Process); ok {
+				rawProcs = append(rawProcs, p)
 			}
-			v.status = fmt.Sprintf("Tree View: %d procs", len(msg))
-		} else {
-			for i := range rawProcs {
-				rawProcs[i].TreePrefix = ""
-			}
-			items := make([]list.Item, len(rawProcs))
-			for i, p := range rawProcs {
-				items[i] = p
-			}
-			finalItems = v.sortItems(items)
-			v.status = fmt.Sprintf("Scanned %d processes.", len(msg))
 		}
 
-		cmd = v.list.SetItems(finalItems)
-		return v, cmd
+		v.loading = false
+		v.rawProcesses = rawProcs // 缓存原始数据
+
+		// 🔥 调用统一的更新列表方法
+		v.updateListItems()
+		return v, nil
 
 	case ProcessActionMsg:
 		if msg.Err != nil {
@@ -159,6 +170,67 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 	v.list, cmd = v.list.Update(msg)
 	cmds = append(cmds, cmd)
 	return v, tea.Batch(cmds...)
+}
+
+func (v *ListView) updateListItems() {
+	delegate := list.NewDefaultDelegate()
+	if v.treeMode {
+		delegate.ShowDescription = false
+		delegate.SetSpacing(0)
+	} else {
+		delegate.ShowDescription = true
+		delegate.SetSpacing(0)
+	}
+	v.list.SetDelegate(delegate)
+
+	hasSelection := len(v.selectedPids) > 0
+
+	var finalItems []list.Item
+
+	if v.treeMode {
+		treeProcs := BuildTree(v.rawProcesses)
+		finalItems = make([]list.Item, len(treeProcs))
+		for i, p := range treeProcs {
+			finalItems[i] = SelectableProcess{
+				Process:      p,
+				Selected:     v.selectedPids[p.PID],
+				ShowCheckbox: hasSelection,
+			}
+		}
+
+		// 状态栏文案
+		if hasSelection {
+			v.status = fmt.Sprintf("%d selected | Tree View", len(v.selectedPids))
+		} else {
+			v.status = fmt.Sprintf("Tree View: %d procs", len(v.rawProcesses))
+		}
+
+	} else {
+		sortedRaw := make([]core.Process, len(v.rawProcesses))
+		copy(sortedRaw, v.rawProcesses)
+		sorter := v.sorters[v.currentSortIdx]
+		sort.SliceStable(sortedRaw, func(i, j int) bool {
+			return sorter.Less(sortedRaw[i], sortedRaw[j])
+		})
+
+		finalItems = make([]list.Item, len(sortedRaw))
+		for i, p := range sortedRaw {
+			p.TreePrefix = ""
+			finalItems[i] = SelectableProcess{
+				Process:      p,
+				Selected:     v.selectedPids[p.PID],
+				ShowCheckbox: hasSelection,
+			}
+		}
+		// 状态栏文案
+		if hasSelection {
+			v.status = fmt.Sprintf("%d selected | Total: %d", len(v.selectedPids), len(v.rawProcesses))
+		} else {
+			v.status = fmt.Sprintf("Scanned %d processes.", len(v.rawProcesses))
+		}
+	}
+
+	v.list.SetItems(finalItems)
 }
 
 func (v *ListView) View() string {
@@ -194,16 +266,6 @@ func (v *ListView) registerActions() {
 	for _, action := range actions {
 		v.registry.Register(action.Binding, action.Action)
 	}
-}
-
-func (v *ListView) sortItems(items []list.Item) []list.Item {
-	sorted := make([]list.Item, len(items))
-	copy(sorted, items)
-	sorter := v.sorters[v.currentSortIdx]
-	sort.SliceStable(sorted, func(i, j int) bool {
-		return sorter.Less(sorted[i].(core.Process), sorted[j].(core.Process))
-	})
-	return sorted
 }
 
 func (v *ListView) refreshListCmd() tea.Cmd {
