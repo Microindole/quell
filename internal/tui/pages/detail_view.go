@@ -65,12 +65,14 @@ func (d *DetailView) registerActions() {
 	// Kill
 	d.registry.Register(key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "kill")),
 		func(m View) (tea.Cmd, bool) {
-			// Push 弹窗，确认后 kill 并自动退回列表页 (Pop)
 			cmd := tea.Batch(
-				Pop(), // 关掉弹窗
-				Pop(), // 关掉详情页(退回列表)
-				func() tea.Msg { // 执行 Kill
-					return processKilledMsg{err: d.state.Service.Kill(d.process.PID, false)}
+				Pop(),
+				Pop(),
+				func() tea.Msg {
+					return ProcessActionMsg{
+						Err:    d.state.Service.Kill(d.process.PID, false),
+						Action: "Killed",
+					}
 				},
 			)
 			return Push(NewConfirmDialog(fmt.Sprintf("Kill %s?", d.process.Name), cmd)), true

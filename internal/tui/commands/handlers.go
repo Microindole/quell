@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"strconv"
+
 	"github.com/Microindole/quell/internal/tui/pages"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -16,5 +18,51 @@ func QuitCmd(args []string, state *pages.SharedState) (pages.View, tea.Cmd) {
 	return nil, tea.Quit
 }
 
-// 这里以后可以扩展更多命令，例如:
-// func TreeCmd(args []string, state *pages.SharedState) (pages.View, tea.Cmd) { ... }
+// KillCmd 实现 /kill <pid>
+func KillCmd(args []string, state *pages.SharedState) (pages.View, tea.Cmd) {
+	if len(args) == 0 {
+		return nil, nil
+	} // 简化错误处理
+	pid, err := strconv.ParseInt(args[0], 10, 32)
+	if err != nil {
+		return nil, nil
+	}
+
+	cmd := func() tea.Msg {
+		err := state.Service.Kill(int32(pid), false)
+		return pages.ProcessActionMsg{Err: err, Action: "Killed"}
+	}
+	return nil, tea.Batch(pages.Pop(), cmd)
+}
+
+func PauseCmd(args []string, state *pages.SharedState) (pages.View, tea.Cmd) {
+	if len(args) == 0 {
+		return nil, nil
+	}
+	pid, err := strconv.ParseInt(args[0], 10, 32)
+	if err != nil {
+		return nil, nil
+	}
+
+	cmd := func() tea.Msg {
+		err := state.Service.Suspend(int32(pid))
+		return pages.ProcessActionMsg{Err: err, Action: "Suspended"}
+	}
+	return nil, tea.Batch(pages.Pop(), cmd)
+}
+
+func ResumeCmd(args []string, state *pages.SharedState) (pages.View, tea.Cmd) {
+	if len(args) == 0 {
+		return nil, nil
+	}
+	pid, err := strconv.ParseInt(args[0], 10, 32)
+	if err != nil {
+		return nil, nil
+	}
+
+	cmd := func() tea.Msg {
+		err := state.Service.Resume(int32(pid))
+		return pages.ProcessActionMsg{Err: err, Action: "Resumed"}
+	}
+	return nil, tea.Batch(pages.Pop(), cmd)
+}

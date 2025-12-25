@@ -12,7 +12,7 @@ type Process struct {
 	Ports      []int
 	Protocol   string
 	Status     string
-	TreePrefix string // 树状图前缀
+	TreePrefix string
 
 	Cmdline     string
 	MemoryUsage uint64
@@ -25,10 +25,18 @@ func (p Process) FilterValue() string {
 	return fmt.Sprintf("%s %d %s %s", p.Name, p.PID, portsStr, p.Status)
 }
 
+func (p Process) IsSuspended() bool {
+	s := strings.ToUpper(p.Status)
+	return s == "T" || // Unix: Stopped
+		s == "T+" || // Unix: Stopped (foreground)
+		s == "SUSPENDED" || // Windows
+		strings.Contains(s, "STOP") //包含 STOP 字样
+}
+
 func (p Process) Title() string {
 	// 状态图标
 	statusIcon := ""
-	if p.Status == "T" {
+	if p.IsSuspended() {
 		statusIcon = "⏸️ "
 	}
 
@@ -36,20 +44,14 @@ func (p Process) Title() string {
 	// 🌳 模式 1: 树状视图 (Tree View)
 	// ---------------------------------------------------------
 	if p.TreePrefix != "" {
-		// 单行显示：[前缀] [图标] [名字] ... [统计数据]
-
 		memMB := float64(p.MemoryUsage) / 1024 / 1024
-
-		displayIcon := statusIcon
-		if displayIcon == "" {
-			displayIcon = " "
+		nameDisplay := p.Name
+		if p.IsSuspended() {
+			nameDisplay += " [PAUSED]"
 		}
 
-		basic := fmt.Sprintf("%s%s%s", p.TreePrefix, displayIcon, p.Name)
-
-		// 统计部分：跟在后面
+		basic := fmt.Sprintf("%s%s%s", p.TreePrefix, statusIcon, nameDisplay)
 		stats := fmt.Sprintf("  (PID:%d | %.1f%% | %.0fMB)", p.PID, p.CpuPercent, memMB)
-
 		return basic + stats
 	}
 
@@ -70,18 +72,27 @@ func (p Process) Title() string {
 			portStr = fmt.Sprintf("(%s)", strings.Join(ps, ", "))
 		}
 	}
-	return fmt.Sprintf("%s%s %s", statusIcon, p.Name, portStr)
+
+	displayName := p.Name
+	if p.IsSuspended() {
+		displayName = fmt.Sprintf("[PAUSED] %s", p.Name)
+	}
+
+	return fmt.Sprintf("%s%s %s", statusIcon, displayName, portStr)
 }
 
 func (p Process) Description() string {
-	// 🌳 树状模式下，必须隐藏第二行，否则竖线会断开！
+	// 🌳 树状模式下隐藏
 	if p.TreePrefix != "" {
 		return ""
 	}
 
-	// 📄 普通模式：显示详情
+	// 📄 普通模式：增加 Status 显示
 	memMB := float64(p.MemoryUsage) / 1024 / 1024
-	return fmt.Sprintf("PID: %d | PPID: %d | CPU: %.1f%% | Mem: %.1f MB", p.PID, p.PPID, p.CpuPercent, memMB)
+
+	// 这里加了 Status 字段显示
+	return fmt.Sprintf("PID: %d | CPU: %.1f%% | Mem: %.1f MB",
+		p.PID, p.CpuPercent, memMB)
 }
 
 func (p Process) ShortCmd() string {

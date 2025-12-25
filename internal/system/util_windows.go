@@ -2,14 +2,21 @@
 
 package system
 
-import "os"
+import (
+	"os"
 
-// IsAdmin Checks if the current process has administrative privileges
+	"github.com/shirou/gopsutil/v3/process"
+)
+
 func IsAdmin() bool {
-	// 尝试打开物理磁盘，只有管理员能做 (一种常见的判定方式)
 	_, err := os.Open("\\\\.\\PHYSICALDRIVE0")
-	if err == nil {
-		return true
+	return err == nil
+}
+
+func GetProcessStatus(p *process.Process) string {
+	status, err := p.Status()
+	if err != nil || len(status) == 0 {
+		return "Running"
 	}
-	return false
+	return status[0]
 }

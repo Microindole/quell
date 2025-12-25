@@ -12,7 +12,6 @@ import (
 )
 
 type delayedRefreshMsg struct{}
-type processKilledMsg struct{ err error }
 
 type ListView struct {
 	state          *SharedState
@@ -34,7 +33,7 @@ func NewListView(state *SharedState) *ListView {
 		state:    state,
 		list:     l,
 		registry: &HandlerRegistry{},
-		sorters:  []Sorter{PIDSorter{}, MemSorter{}, CPUSorter{}},
+		sorters:  []Sorter{StatusSorter{}, CPUSorter{}, MemSorter{}, PIDSorter{}},
 		loading:  true,
 		status:   "Scanning...",
 		treeMode: false,
@@ -65,10 +64,10 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 
 		delegate := list.NewDefaultDelegate()
 		if v.treeMode {
-			delegate.ShowDescription = false // 关键：高度变为 1 行
-			delegate.SetSpacing(0)           // 确保没有额外间距
+			delegate.ShowDescription = false
+			delegate.SetSpacing(0)
 		} else {
-			delegate.ShowDescription = true // 恢复默认 (2 行)
+			delegate.ShowDescription = true
 			delegate.SetSpacing(0)
 		}
 		v.list.SetDelegate(delegate)
@@ -77,46 +76,40 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 		for _, item := range msg {
 			rawProcs = append(rawProcs, item.(core.Process))
 		}
-
 		var finalItems []list.Item
-
 		if v.treeMode {
-			// 🌳 Tree Mode
 			treeProcs := BuildTree(rawProcs)
 			finalItems = make([]list.Item, len(treeProcs))
 			for i, p := range treeProcs {
 				finalItems[i] = p
 			}
+			// 🔥 回归简单：直接更新状态，不判断前缀
 			v.status = fmt.Sprintf("Tree View: %d procs", len(msg))
 		} else {
-			// 📄 Flat Mode
-
-			// 🔥🔥🔥 必须有这一步：清理残留的前缀 🔥🔥🔥
 			for i := range rawProcs {
 				rawProcs[i].TreePrefix = ""
 			}
-
-			// 正常排序
 			items := make([]list.Item, len(rawProcs))
 			for i, p := range rawProcs {
 				items[i] = p
 			}
 			finalItems = v.sortItems(items)
 
+			// 🔥 回归简单：直接更新状态
 			v.status = fmt.Sprintf("Scanned %d processes.", len(msg))
 		}
 
 		cmd = v.list.SetItems(finalItems)
 		return v, cmd
 
-	case processKilledMsg:
-		if msg.err != nil {
-			v.status = fmt.Sprintf("Error: %v", msg.err)
-		} else {
-			v.status = "Killed successfully."
-			v.list.RemoveItem(v.list.Index())
-			return v, v.delayedRefreshCmd()
+	case ProcessActionMsg:
+		if msg.Err != nil {
+			v.status = fmt.Sprintf("Error: %v", msg.Err)
+			return v, nil
 		}
+		// 动态显示操作结果：Killed, Suspended, Resumed
+		v.status = fmt.Sprintf("%s successfully.", msg.Action)
+		return v, v.delayedRefreshCmd()
 
 	case delayedRefreshMsg:
 		return v, v.refreshListCmd()
@@ -187,6 +180,32 @@ func (v *ListView) registerActions() {
 			return Push(NewCommandInput(v.state)), true
 		})
 
+	// 快捷键：s (Suspend)
+	v.registry.Register(key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "suspend")),
+		func(m View) (tea.Cmd, bool) {
+			if i := v.list.SelectedItem(); i != nil {
+				p := i.(core.Process)
+				// 执行 Suspend 并返回消息
+				return func() tea.Msg {
+					return ProcessActionMsg{Err: v.state.Service.Suspend(p.PID), Action: "Suspended"}
+				}, true
+			}
+			return nil, false
+		})
+
+	// 快捷键：c (Continue/Resume)
+	v.registry.Register(key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "continue")),
+		func(m View) (tea.Cmd, bool) {
+			if i := v.list.SelectedItem(); i != nil {
+				p := i.(core.Process)
+				// 执行 Resume 并返回消息
+				return func() tea.Msg {
+					return ProcessActionMsg{Err: v.state.Service.Resume(p.PID), Action: "Resumed"}
+				}, true
+			}
+			return nil, false
+		})
+
 }
 func (v *ListView) sortItems(items []list.Item) []list.Item {
 	sorted := make([]list.Item, len(items))
@@ -211,7 +230,12 @@ func (v *ListView) refreshListCmd() tea.Cmd {
 	}
 }
 func (v *ListView) killCmd(pid int32, force bool) tea.Cmd {
-	return func() tea.Msg { return processKilledMsg{err: v.state.Service.Kill(pid, force)} }
+	return func() tea.Msg {
+		return ProcessActionMsg{
+			Err:    v.state.Service.Kill(pid, force),
+			Action: "Killed",
+		}
+	}
 }
 func (v *ListView) delayedRefreshCmd() tea.Cmd {
 	return tea.Tick(1, func(t time.Time) tea.Msg { return delayedRefreshMsg{} })

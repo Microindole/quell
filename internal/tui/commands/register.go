@@ -10,7 +10,10 @@ func RegisterAll(registry map[string]pages.CommandFunc) {
 	registry["/help"] = HelpCmd
 	registry["/quit"] = QuitCmd
 	registry["/exit"] = QuitCmd
+	registry["/kill"] = KillCmd
 
-	// 以后新增命令只需在这里加一行
-	// registry["/tree"] = TreeCmd
+	registry["/stop"] = PauseCmd
+	registry["/pause"] = PauseCmd
+	registry["/cont"] = ResumeCmd
+	registry["/resume"] = ResumeCmd
 }

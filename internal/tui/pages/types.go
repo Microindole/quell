@@ -26,6 +26,13 @@ type PushViewMsg struct{ View View }
 type PopViewMsg struct{}
 type ReplaceViewMsg struct{ View View }
 
+type ProcessActionMsg struct {
+	Err    error
+	Action string // 例如: "Killed", "Suspended", "Resumed"
+}
+
+type ForceRefreshMsg struct{}
+
 func Push(v View) tea.Cmd {
 	return func() tea.Msg { return PushViewMsg{View: v} }
 }

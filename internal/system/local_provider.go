@@ -111,6 +111,8 @@ func (l *LocalProvider) ListProcesses() ([]core.Process, error) {
 
 		user, _ := proc.Username()
 
+		statusStr := GetProcessStatus(proc)
+
 		results = append(results, core.Process{
 			PID:         pid,
 			PPID:        ppid,
@@ -121,6 +123,7 @@ func (l *LocalProvider) ListProcesses() ([]core.Process, error) {
 			MemoryUsage: memUsage,
 			CpuPercent:  cpuPercent,
 			User:        user,
+			Status:      statusStr,
 		})
 	}
 
@@ -176,4 +179,22 @@ func uniqueSortedPorts(ports []int) []int {
 	}
 	sort.Ints(result)
 	return result
+}
+
+// Suspend 暂停进程
+func (l *LocalProvider) Suspend(pid int32) error {
+	p, err := process.NewProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Suspend()
+}
+
+// Resume 恢复进程
+func (l *LocalProvider) Resume(pid int32) error {
+	p, err := process.NewProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Resume()
 }
