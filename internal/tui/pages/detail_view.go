@@ -10,24 +10,33 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ... 样式定义保持不变 ...
 var (
-	detailTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1).Bold(true)
-	labelStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true).Width(10)
-	detailBoxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#7D56F4")).Padding(1, 2).MarginTop(1)
+	detailTitleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1).Bold(true)
+	labelStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true).Width(10)
+	detailBoxStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#7D56F4")).Padding(1, 2).MarginTop(1)
+	cpuSparklineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575"))
+	memSparklineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4"))
 )
 
+const maxHistory = 40
+
 type DetailView struct {
-	state    *SharedState
-	registry *HandlerRegistry // 增加按键处理
-	process  *core.Process
+	state      *SharedState
+	registry   *HandlerRegistry // 增加按键处理
+	process    *core.Process
+	cpuHistory []float64
+	memHistory []float64
+	width      int
 }
 
-func NewDetailView(p *core.Process, state *SharedState) *DetailView {
+func NewDetailView(p *core.Process, state *SharedState, width int) *DetailView {
 	d := &DetailView{
-		state:    state,
-		registry: &HandlerRegistry{},
-		process:  p,
+		state:      state,
+		registry:   &HandlerRegistry{},
+		process:    p,
+		cpuHistory: make([]float64, maxHistory),
+		memHistory: make([]float64, maxHistory),
+		width:      width, // 初始化宽度
 	}
 	d.registerActions()
 	return d
@@ -38,13 +47,25 @@ func (d *DetailView) Init() tea.Cmd { return nil }
 func (d *DetailView) Update(msg tea.Msg) (View, tea.Cmd) {
 	switch msg := msg.(type) {
 
-	// 🔥 响应心跳：刷新当前进程数据
+	case tea.WindowSizeMsg:
+		d.width = msg.Width
+		return d, nil
+
 	case TickMsg:
 		return d, d.refreshProcessCmd()
 
-	// 🔥 接收刷新后的数据
 	case *core.Process:
 		d.process = msg
+
+		// 1. 更新 CPU 历史
+		d.cpuHistory = d.cpuHistory[1:]
+		d.cpuHistory = append(d.cpuHistory, msg.CpuPercent)
+
+		// 2. 更新 Memory 历史 (单位转为 MB，保持数据量级一致)
+		memMB := float64(msg.MemoryUsage) / 1024 / 1024
+		d.memHistory = d.memHistory[1:]
+		d.memHistory = append(d.memHistory, memMB)
+
 		return d, nil
 
 	case tea.KeyMsg:
@@ -101,12 +122,10 @@ func (d *DetailView) refreshProcessCmd() tea.Cmd {
 	}
 }
 
-// View 和 ShortHelp 方法
 func (d *DetailView) View() string {
 	p := d.process
 	memMB := float64(p.MemoryUsage) / 1024 / 1024
 
-	// 格式化端口列表
 	portStr := "None"
 	if len(p.Ports) > 0 {
 		var ps []string
@@ -116,19 +135,82 @@ func (d *DetailView) View() string {
 		portStr = strings.Join(ps, ", ")
 	}
 
+	cpuGraph := cpuSparklineStyle.Render(renderSparkline(d.cpuHistory))
+	memGraph := memSparklineStyle.Render(renderSparkline(d.memHistory))
+
+	maxWidth := d.width - 12
+	if maxWidth < 20 {
+		maxWidth = 20 // 最小保护
+	}
+
+	cpuVal := fmt.Sprintf("%.1f%%", p.CpuPercent)
+	memVal := fmt.Sprintf("%.1f MB", memMB)
+
+	// 定义 Command 样式，强制换行
+	cmdStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#A0A0A0")).
+		Width(maxWidth). // 关键：设置宽度触发自动换行
+		Align(lipgloss.Left)
+
 	rows := []string{
 		fmt.Sprintf("%s %s", labelStyle.Render("Name:"), p.Name),
 		fmt.Sprintf("%s %d", labelStyle.Render("PID:"), p.PID),
 		fmt.Sprintf("%s %s (%s)", labelStyle.Render("Port:"), portStr, p.Protocol),
 		fmt.Sprintf("%s %s", labelStyle.Render("User:"), p.User),
 		"",
-		fmt.Sprintf("%s %.1f%%", labelStyle.Render("CPU:"), p.CpuPercent),
-		fmt.Sprintf("%s %.1f MB", labelStyle.Render("Memory:"), memMB),
+		fmt.Sprintf("%s %-12s %s", labelStyle.Render("CPU:"), cpuVal, cpuGraph),
+		fmt.Sprintf("%s %-12s %s", labelStyle.Render("Memory:"), memVal, memGraph),
 		"",
 		labelStyle.Render("Command:"),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#A0A0A0")).Render(p.Cmdline),
+		cmdStyle.Render(p.Cmdline),
 	}
 	return detailTitleStyle.Render(fmt.Sprintf(" Process Detail: %s ", p.Name)) + "\n" + detailBoxStyle.Render(strings.Join(rows, "\n"))
 }
 
 func (d *DetailView) ShortHelp() []key.Binding { return d.registry.MakeHelp() }
+
+// renderSparkline 将浮点数切片转换为方块字符图
+// renderSparkline 将浮点数切片转换为波形图
+func renderSparkline(data []float64) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	m := 0.0
+	for _, v := range data {
+		if v > m {
+			m = v
+		}
+	}
+
+	// 动态调整基准：
+	// 如果最大值很小（比如内存波动只有 0.1MB），我们设置一个最小基准，避免噪点被放大成巨浪。
+	// 对于 CPU，满载是 100，但为了看清微小波动，我们可以设低一点的 floor。
+	if m < 1.0 {
+		m = 1.0
+	}
+
+	// 优化字符集：移除空格，使用 " ▂▃▄▅▆▇█"
+	// 第一个字符是 U+2581 (Lower One Eighth Block)，保证有基准线
+	levels := []rune(" ▂▃▄▅▆▇█")
+
+	var sb strings.Builder
+	for _, v := range data {
+		// 计算高度比例 (0.0 - 1.0)
+		ratio := v / m
+
+		// 映射到索引 (0 - 7)
+		idx := int(ratio * float64(len(levels)-1))
+
+		// 边界保护
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(levels) {
+			idx = len(levels) - 1
+		}
+
+		sb.WriteRune(levels[idx])
+	}
+	return sb.String()
+}

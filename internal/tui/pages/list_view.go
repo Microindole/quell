@@ -9,9 +9,39 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type delayedRefreshMsg struct{}
+
+var (
+	// Logo 样式：使用更亮的紫色，增加一点 Margin
+	logoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9F7AEA")). // 亮紫色
+			Bold(true).
+			MarginBottom(1)
+
+	// 版本号样式 (Badge 风格)
+	versionStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#1A1A1A")).
+			Background(lipgloss.Color("#04B575")). // 绿色背景
+			Padding(0, 1).
+			Bold(true)
+
+	// 加载文字样式
+	loadingTextStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#626262")).
+				Italic(true).
+				MarginTop(1)
+
+	quellLogo = `
+   ____  __  __________    __ 
+  / __ \/ / / / ____/ /   / / 
+ / / / / / / / __/ / /   / /  
+/ /_/ / /_/ / /___/ /___/ /___
+\___\_\____/_____/_____/_____/
+`
+)
 
 type ListView struct {
 	state          *SharedState
@@ -46,13 +76,11 @@ func NewListView(state *SharedState, sortIdx int, treeMode bool) *ListView {
 	return v
 }
 
-// GetState 导出当前状态
 func (v *ListView) GetState() (int, bool) {
 	return v.currentSortIdx, v.treeMode
 }
 
 func (v *ListView) Init() tea.Cmd {
-	// 🔥 Init 不再启动 Tick，只启动数据刷新
 	return v.refreshListCmd()
 }
 
@@ -64,12 +92,11 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		v.list.SetSize(msg.Width-4, msg.Height-4)
 
-	// 🔥 收到 TickMsg，只负责刷新数据，不要再发 TickCmd 了 (Model 已经发了)
 	case TickMsg:
 		return v, v.refreshListCmd()
 
 	case []list.Item:
-		v.loading = false
+		v.loading = false // 加载完成，Loading 界面消失
 
 		delegate := list.NewDefaultDelegate()
 		if v.treeMode {
@@ -92,7 +119,6 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 			for i, p := range treeProcs {
 				finalItems[i] = p
 			}
-			// 🔥 回归简单：直接更新状态，不判断前缀
 			v.status = fmt.Sprintf("Tree View: %d procs", len(msg))
 		} else {
 			for i := range rawProcs {
@@ -103,8 +129,6 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 				items[i] = p
 			}
 			finalItems = v.sortItems(items)
-
-			// 🔥 回归简单：直接更新状态
 			v.status = fmt.Sprintf("Scanned %d processes.", len(msg))
 		}
 
@@ -116,7 +140,6 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 			v.status = fmt.Sprintf("Error: %v", msg.Err)
 			return v, nil
 		}
-		// 动态显示操作结果：Killed, Suspended, Resumed
 		v.status = fmt.Sprintf("%s successfully.", msg.Action)
 		return v, v.delayedRefreshCmd()
 
@@ -140,17 +163,34 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 
 func (v *ListView) View() string {
 	if v.loading {
-		return "Loading..."
+		w, h := v.list.Width(), v.list.Height()
+		if w == 0 || h == 0 {
+			w, h = 80, 24
+		}
+
+		// 组合内容：
+		// Logo
+		// Version Badge (v1.0.0)
+		// Loading Text
+		content := lipgloss.JoinVertical(lipgloss.Center,
+			logoStyle.Render(quellLogo),
+			versionStyle.Render(" v1.0.0 "),                        // 这里写死或从 config 读
+			loadingTextStyle.Render("Initializing Neural Link..."), // 搞点中二的提示语
+		)
+
+		return lipgloss.Place(
+			w, h,
+			lipgloss.Center, lipgloss.Center,
+			content,
+		)
 	}
 	return v.list.View()
 }
+
 func (v *ListView) ShortHelp() []key.Binding { return v.registry.MakeHelp() }
 
 func (v *ListView) registerActions() {
-	// 🔥 使用命令模式重构：获取所有定义好的命令
 	actions := GetDefaultListActions(v)
-
-	// 统一注册
 	for _, action := range actions {
 		v.registry.Register(action.Binding, action.Action)
 	}

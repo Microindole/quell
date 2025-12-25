@@ -18,7 +18,13 @@ func GetDefaultListActions(v *ListView) []KeyHandler {
 			Action: func(m View) (tea.Cmd, bool) {
 				if i := v.list.SelectedItem(); i != nil {
 					p := i.(core.Process)
-					return Push(NewDetailView(&p, v.state)), true
+					currentWidth := v.list.Width() + 4
+					if currentWidth < 10 {
+						currentWidth = 80
+					}
+
+					// 传入宽度
+					return Push(NewDetailView(&p, v.state, currentWidth)), true
 				}
 				return nil, false
 			},
