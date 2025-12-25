@@ -1,128 +1,112 @@
 package tui
 
 import (
-	"sort"
-	"time"
+	"fmt"
 
 	"github.com/Microindole/quell/internal/core"
 	"github.com/Microindole/quell/internal/system"
-	"github.com/charmbracelet/bubbles/list"
+	"github.com/Microindole/quell/internal/tui/commands"
+	"github.com/Microindole/quell/internal/tui/components"
+	"github.com/Microindole/quell/internal/tui/pages"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
-const heartbeatInterval = 2 * time.Second
-
-type tickMsg time.Time
-
-type delayedRefreshMsg struct{}
-type processKilledMsg struct{ err error }
+var appStyle = lipgloss.NewStyle().Padding(1, 2)
 
 type Model struct {
-	list           list.Model
-	svc            *core.Service
-	registry       *HandlerRegistry
-	sorters        []Sorter
-	currentSortIdx int
-	loading        bool
-	status         string
-	inspecting     bool
-	selected       *core.Process
-	isAdmin        bool
+	shared *pages.SharedState
+	stack  []pages.View
+	active pages.View
 }
 
-func NewModel(svc *core.Service) Model {
-	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
-	l.Title = "Quell - Process Killer"
-	l.SetShowHelp(false)
-
-	m := Model{
-		list:     l,
-		svc:      svc,
-		registry: &HandlerRegistry{},
-		sorters: []Sorter{
-			PIDSorter{},
-			MemSorter{},
-			CPUSorter{},
-		},
-		currentSortIdx: 0,
-		loading:        true,
-		status:         "Scanning ports...",
-		isAdmin:        system.IsAdmin(),
+func NewModel(svc *core.Service) *Model {
+	commands.RegisterAll(pages.CommandRegistry)
+	
+	state := &pages.SharedState{
+		Service: svc,
+		IsAdmin: system.IsAdmin(),
 	}
-	registerCoreActions(&m)
-	registerSortActions(&m)
-
-	return m
+	initialView := pages.NewListView(state)
+	return &Model{
+		shared: state,
+		stack:  []pages.View{initialView},
+		active: initialView,
+	}
 }
 
-func (m Model) Init() tea.Cmd {
-	return tea.Batch(
-		m.refreshListCmd(),
-		m.tickCmd(),
-	)
+func (m *Model) Init() tea.Cmd {
+	// 🔥 启动时，同时初始化页面 AND 启动全局心跳
+	return tea.Batch(m.active.Init(), pages.TickCmd())
 }
 
-func (m Model) sortItems(items []list.Item) []list.Item {
-	sorted := make([]list.Item, len(items))
-	copy(sorted, items)
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
 
-	currentSorter := m.sorters[m.currentSortIdx]
+	switch msg := msg.(type) {
+	case pages.PushViewMsg:
+		m.stack = append(m.stack, msg.View)
+		m.active = msg.View
+		return m, msg.View.Init()
 
-	sort.SliceStable(sorted, func(i, j int) bool {
-		p1 := sorted[i].(core.Process)
-		p2 := sorted[j].(core.Process)
-		return currentSorter.Less(p1, p2)
-	})
-	return sorted
-}
-
-func (m Model) refreshListCmd() tea.Cmd {
-	return func() tea.Msg {
-		procs, err := m.svc.GetProcesses()
-		if err != nil {
-			return nil
+	case pages.PopViewMsg:
+		if len(m.stack) > 1 {
+			m.stack = m.stack[:len(m.stack)-1]
+			m.active = m.stack[len(m.stack)-1]
 		}
-		items := make([]list.Item, len(procs))
-		for i, p := range procs {
-			items[i] = p
+		return m, nil
+
+	case pages.ReplaceViewMsg:
+		if len(m.stack) > 0 {
+			// 替换栈顶元素
+			m.stack[len(m.stack)-1] = msg.View
+			m.active = msg.View
+			return m, msg.View.Init()
 		}
-		return items
+
+	case tea.KeyMsg:
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+	case pages.TickMsg:
+		// 1. 续订下一个心跳 (保证循环不断)
+		cmds = append(cmds, pages.TickCmd())
+		// 2. 继续向下传递 msg，让 Active View 也有机会处理 Tick (比如刷新数据)
 	}
+
+	// 路由分发
+	var cmd tea.Cmd
+	m.active, cmd = m.active.Update(msg)
+	cmds = append(cmds, cmd)
+
+	// 更新栈顶
+	if len(m.stack) > 0 {
+		m.stack[len(m.stack)-1] = m.active
+	}
+
+	return m, tea.Batch(cmds...)
 }
 
-func (m Model) killProcessCmd(pid int32, force bool) tea.Cmd {
-	return func() tea.Msg {
-		err := m.svc.Kill(pid, force)
-		return processKilledMsg{err: err}
-	}
-}
+func (m *Model) View() string {
+	content := m.active.View()
 
-func (m Model) delayedRefreshCmd() tea.Cmd {
-	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
-		return delayedRefreshMsg{}
-	})
-}
-
-func (m Model) getTarget() (int32, string) {
-	if m.inspecting && m.selected != nil {
-		return m.selected.PID, m.selected.Name
+	authIcon := "👤 User"
+	if m.shared.IsAdmin {
+		authIcon = "⚡ Admin"
 	}
-	if i := m.list.SelectedItem(); i != nil {
-		p := i.(core.Process) // 类型断言
-		return p.PID, p.Name
-	}
-	return 0, ""
-}
 
-func (m Model) tickCmd() tea.Cmd {
-	return tea.Tick(heartbeatInterval, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
-}
-
-func (m Model) getSortName() string {
-	if len(m.sorters) == 0 {
-		return "Unknown"
+	extraInfo := ""
+	// 如果是 ListView，显示特定状态
+	if lv, ok := m.active.(*pages.ListView); ok {
+		extraInfo = fmt.Sprintf(" | %s | Sort: %s", lv.GetStatus(), lv.GetSortName())
 	}
-	return m.sorters[m.currentSortIdx].Name()
+	// 如果是 DetailView，也可以显示特定状态
+	if _, ok := m.active.(*pages.DetailView); ok {
+		extraInfo = " | Inspecting..."
+	}
+
+	statusText := authIcon + extraInfo
+	statusBar := components.RenderStatusBar(statusText)
+
+	return appStyle.Render(content + "\n" + statusBar)
 }

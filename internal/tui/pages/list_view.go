@@ -1,0 +1,220 @@
+package pages
+
+import (
+	"fmt"
+	"sort"
+	"time"
+
+	"github.com/Microindole/quell/internal/core"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+type delayedRefreshMsg struct{}
+type processKilledMsg struct{ err error }
+
+type ListView struct {
+	state          *SharedState
+	list           list.Model
+	registry       *HandlerRegistry
+	sorters        []Sorter
+	currentSortIdx int
+	loading        bool
+	status         string
+	treeMode       bool
+}
+
+func NewListView(state *SharedState) *ListView {
+	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	l.Title = "Quell - Process Killer"
+	l.SetShowHelp(false)
+
+	v := &ListView{
+		state:    state,
+		list:     l,
+		registry: &HandlerRegistry{},
+		sorters:  []Sorter{PIDSorter{}, MemSorter{}, CPUSorter{}},
+		loading:  true,
+		status:   "Scanning...",
+		treeMode: false,
+	}
+	v.registerActions()
+	return v
+}
+
+func (v *ListView) Init() tea.Cmd {
+	// 🔥 Init 不再启动 Tick，只启动数据刷新
+	return v.refreshListCmd()
+}
+
+func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
+	var cmd tea.Cmd
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		v.list.SetSize(msg.Width-4, msg.Height-4)
+
+	// 🔥 收到 TickMsg，只负责刷新数据，不要再发 TickCmd 了 (Model 已经发了)
+	case TickMsg:
+		return v, v.refreshListCmd()
+
+	case []list.Item:
+		v.loading = false
+
+		delegate := list.NewDefaultDelegate()
+		if v.treeMode {
+			delegate.ShowDescription = false // 关键：高度变为 1 行
+			delegate.SetSpacing(0)           // 确保没有额外间距
+		} else {
+			delegate.ShowDescription = true // 恢复默认 (2 行)
+			delegate.SetSpacing(0)
+		}
+		v.list.SetDelegate(delegate)
+
+		var rawProcs []core.Process
+		for _, item := range msg {
+			rawProcs = append(rawProcs, item.(core.Process))
+		}
+
+		var finalItems []list.Item
+
+		if v.treeMode {
+			// 🌳 Tree Mode
+			treeProcs := BuildTree(rawProcs)
+			finalItems = make([]list.Item, len(treeProcs))
+			for i, p := range treeProcs {
+				finalItems[i] = p
+			}
+			v.status = fmt.Sprintf("Tree View: %d procs", len(msg))
+		} else {
+			// 📄 Flat Mode
+
+			// 🔥🔥🔥 必须有这一步：清理残留的前缀 🔥🔥🔥
+			for i := range rawProcs {
+				rawProcs[i].TreePrefix = ""
+			}
+
+			// 正常排序
+			items := make([]list.Item, len(rawProcs))
+			for i, p := range rawProcs {
+				items[i] = p
+			}
+			finalItems = v.sortItems(items)
+
+			v.status = fmt.Sprintf("Scanned %d processes.", len(msg))
+		}
+
+		cmd = v.list.SetItems(finalItems)
+		return v, cmd
+
+	case processKilledMsg:
+		if msg.err != nil {
+			v.status = fmt.Sprintf("Error: %v", msg.err)
+		} else {
+			v.status = "Killed successfully."
+			v.list.RemoveItem(v.list.Index())
+			return v, v.delayedRefreshCmd()
+		}
+
+	case delayedRefreshMsg:
+		return v, v.refreshListCmd()
+
+	case tea.KeyMsg:
+		if v.list.FilterState() == list.Filtering {
+			v.list, cmd = v.list.Update(msg)
+			return v, cmd
+		}
+		if cmd, handled := v.registry.Handle(msg, v); handled {
+			return v, cmd
+		}
+	}
+
+	v.list, cmd = v.list.Update(msg)
+	cmds = append(cmds, cmd)
+	return v, tea.Batch(cmds...)
+}
+
+func (v *ListView) View() string {
+	if v.loading {
+		return "Loading..."
+	}
+	return v.list.View()
+}
+func (v *ListView) ShortHelp() []key.Binding { return v.registry.MakeHelp() }
+func (v *ListView) registerActions() {
+	// 保持原来的 enter/tab/x/X 注册逻辑不变
+	v.registry.Register(key.NewBinding(key.WithKeys("enter", "space"), key.WithHelp("enter", "detail")),
+		func(m View) (tea.Cmd, bool) {
+			if i := v.list.SelectedItem(); i != nil {
+				p := i.(core.Process)
+				return Push(NewDetailView(&p, v.state)), true // 🔥 注意：传入 state
+			}
+			return nil, false
+		})
+	v.registry.Register(key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "sort")),
+		func(m View) (tea.Cmd, bool) {
+			v.currentSortIdx = (v.currentSortIdx + 1) % len(v.sorters)
+			items := v.list.Items()
+			v.list.SetItems(v.sortItems(items))
+			v.status = fmt.Sprintf("Sorted by %s", v.sorters[v.currentSortIdx].Name())
+			return nil, true
+		})
+	killAction := func(force bool) func(View) (tea.Cmd, bool) {
+		return func(m View) (tea.Cmd, bool) {
+			if i := v.list.SelectedItem(); i != nil {
+				p := i.(core.Process)
+				title := fmt.Sprintf("Sure to kill %s?", p.Name)
+				if force {
+					title = fmt.Sprintf("Sure to FORCE KILL %s?", p.Name)
+				}
+				return Push(NewConfirmDialog(title, v.killCmd(p.PID, force))), true
+			}
+			return nil, false
+		}
+	}
+	v.registry.Register(key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "kill")), killAction(false))
+	v.registry.Register(key.NewBinding(key.WithKeys("X"), key.WithHelp("X", "force kill")), killAction(true))
+	v.registry.Register(key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "tree view")),
+		func(m View) (tea.Cmd, bool) {
+			v.treeMode = !v.treeMode
+			// 触发一次立即刷新，复用 logic
+			return v.refreshListCmd(), true
+		})
+	v.registry.Register(key.NewBinding(key.WithKeys("`"), key.WithHelp("`", "command")),
+		func(m View) (tea.Cmd, bool) {
+			return Push(NewCommandInput(v.state)), true
+		})
+
+}
+func (v *ListView) sortItems(items []list.Item) []list.Item {
+	sorted := make([]list.Item, len(items))
+	copy(sorted, items)
+	sorter := v.sorters[v.currentSortIdx]
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorter.Less(sorted[i].(core.Process), sorted[j].(core.Process))
+	})
+	return sorted
+}
+func (v *ListView) refreshListCmd() tea.Cmd {
+	return func() tea.Msg {
+		procs, err := v.state.Service.GetProcesses()
+		if err != nil {
+			return nil
+		}
+		items := make([]list.Item, len(procs))
+		for i, p := range procs {
+			items[i] = p
+		}
+		return items
+	}
+}
+func (v *ListView) killCmd(pid int32, force bool) tea.Cmd {
+	return func() tea.Msg { return processKilledMsg{err: v.state.Service.Kill(pid, force)} }
+}
+func (v *ListView) delayedRefreshCmd() tea.Cmd {
+	return tea.Tick(1, func(t time.Time) tea.Msg { return delayedRefreshMsg{} })
+}
+func (v *ListView) GetStatus() string   { return v.status }
+func (v *ListView) GetSortName() string { return v.sorters[v.currentSortIdx].Name() }

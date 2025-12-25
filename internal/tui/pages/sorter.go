@@ -1,16 +1,11 @@
-package tui
+package pages
 
-import (
-	"github.com/Microindole/quell/internal/core"
-)
+import "github.com/Microindole/quell/internal/core"
 
-// Sorter 定义排序策略接口
 type Sorter interface {
 	Name() string
 	Less(p1, p2 core.Process) bool
 }
-
-// 具体的策略实现
 
 type PIDSorter struct{}
 

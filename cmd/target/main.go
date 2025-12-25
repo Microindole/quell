@@ -21,7 +21,7 @@ func main() {
 	go func() {
 		// 阻塞等待信号
 		sig := <-c
-		fmt.Printf("\n[TARGET] 🏳️  哎哟！我收到了信号: %v\n", sig)
+		fmt.Printf("\n[TARGET] 🏳️ 哎哟！我收到了信号: %v\n", sig)
 		fmt.Println("[TARGET] 正在收拾行李准备优雅退出... (模拟耗时 1秒)")
 		time.Sleep(1 * time.Second)
 		fmt.Println("[TARGET] 再见！")
