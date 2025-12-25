@@ -60,19 +60,18 @@ func (l *LocalProvider) ListProcesses() ([]core.Process, error) {
 		seenPids[pid] = true
 
 		var proc *process.Process
+		var currentCreateTime int64 // 🔥 新增变量，用于暂存时间
 
-		// --- 智能缓存逻辑 (解决 PID 复用 + CPU 0% 问题) ---
+		// --- 智能缓存逻辑 ---
 		cached, exists := l.procCache[pid]
 
 		if exists {
-			// 验证该 PID 是否还是原来的进程 (通过创建时间判断)
-			// 注意：Process.CreateTime() 会实时获取当前 PID 的创建时间
-			currentCreateTime, err := cached.proc.CreateTime()
-			if err == nil && currentCreateTime == cached.createTime {
-				// 是一样的进程，安全复用
+			ct, err := cached.proc.CreateTime()
+			// 验证时间是否一致
+			if err == nil && ct == cached.createTime {
 				proc = cached.proc
+				currentCreateTime = cached.createTime // 命中缓存，取缓存时间
 			} else {
-				// PID 被复用，或者是第一次获取 CreateTime 失败，视为新进程
 				exists = false
 			}
 		}
@@ -80,10 +79,11 @@ func (l *LocalProvider) ListProcesses() ([]core.Process, error) {
 		if !exists {
 			newProc, err := process.NewProcess(pid)
 			if err != nil {
-				continue // 进程可能刚结束
+				continue
 			}
-			ct, _ := newProc.CreateTime() // 获取创建时间
+			ct, _ := newProc.CreateTime()
 			proc = newProc
+			currentCreateTime = ct // 🔥 新进程，取刚获取的时间
 
 			// 更新缓存
 			l.procCache[pid] = cachedProcess{
@@ -91,8 +91,6 @@ func (l *LocalProvider) ListProcesses() ([]core.Process, error) {
 				createTime: ct,
 			}
 		}
-		// ---------------------------------------------
-
 		// 过滤系统进程/无权限进程
 		name, err := proc.Name()
 		if err != nil || name == "" {
@@ -117,17 +115,18 @@ func (l *LocalProvider) ListProcesses() ([]core.Process, error) {
 			PID:         pid,
 			PPID:        ppid,
 			Name:        l.refineName(proc, name),
-			Ports:       portMap[pid], // 👈 这里现在是 []int
+			Ports:       portMap[pid], // 这里现在是 []int
 			Protocol:    "TCP",
 			Cmdline:     l.getCmdlineSafe(proc),
 			MemoryUsage: memUsage,
 			CpuPercent:  cpuPercent,
 			User:        user,
 			Status:      statusStr,
+			CreateTime:  currentCreateTime,
 		})
 	}
 
-	// 🧹 清理缓存
+	// 清理缓存
 	for cachedPid := range l.procCache {
 		if !seenPids[cachedPid] {
 			delete(l.procCache, cachedPid)
@@ -197,4 +196,12 @@ func (l *LocalProvider) Resume(pid int32) error {
 		return err
 	}
 	return p.Resume()
+}
+
+func (l *LocalProvider) GetCreateTime(pid int32) (int64, error) {
+	p, err := process.NewProcess(pid)
+	if err != nil {
+		return 0, err
+	}
+	return p.CreateTime()
 }

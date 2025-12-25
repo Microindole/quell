@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 
+	"github.com/Microindole/quell/internal/config"
 	"github.com/Microindole/quell/internal/core"
 	"github.com/Microindole/quell/internal/system"
 	"github.com/Microindole/quell/internal/tui/commands"
@@ -20,19 +21,47 @@ type Model struct {
 	active pages.View
 }
 
-func NewModel(svc *core.Service) *Model {
+func NewModel(svc *core.Service, cfg *config.Config) *Model {
 	commands.RegisterAll(pages.CommandRegistry)
-	
 	state := &pages.SharedState{
 		Service: svc,
 		IsAdmin: system.IsAdmin(),
 	}
-	initialView := pages.NewListView(state)
+	initialView := pages.NewListView(state, cfg.SortIndex, cfg.TreeMode)
 	return &Model{
 		shared: state,
 		stack:  []pages.View{initialView},
 		active: initialView,
 	}
+}
+
+// GetSnapshot 收集当前应用状态用于保存
+func (m *Model) GetSnapshot() *config.Config {
+	cfg := &config.Config{}
+
+	// 1. 获取 Service 中的暂停列表 (返回的是匿名结构体切片)
+	rawList := m.shared.Service.GetPausedProcs()
+
+	// 2. 转换为 config 包需要的结构体
+	var pausedProcs []config.PausedProcess
+	for _, item := range rawList {
+		pausedProcs = append(pausedProcs, config.PausedProcess{
+			PID:        item.PID,
+			CreateTime: item.CreateTime,
+		})
+	}
+	cfg.PausedProcs = pausedProcs
+
+	// 3. 获取 ListView 的状态
+	if len(m.stack) > 0 {
+		if lv, ok := m.stack[0].(*pages.ListView); ok {
+			sortIdx, treeMode := lv.GetState()
+			cfg.SortIndex = sortIdx
+			cfg.TreeMode = treeMode
+		}
+	}
+
+	return cfg
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -66,8 +95,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
-			return m, tea.Quit
+			if _, ok := m.active.(*pages.ConfirmDialog); ok {
+				return m, tea.Quit
+			}
+			return m, pages.Push(pages.NewConfirmDialog("Really quit Quell?", tea.Quit))
 		}
+
 	case pages.TickMsg:
 		// 1. 续订下一个心跳 (保证循环不断)
 		cmds = append(cmds, pages.TickCmd())

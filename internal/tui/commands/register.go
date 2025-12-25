@@ -16,4 +16,7 @@ func RegisterAll(registry map[string]pages.CommandFunc) {
 	registry["/pause"] = PauseCmd
 	registry["/cont"] = ResumeCmd
 	registry["/resume"] = ResumeCmd
+
+	registry["/pkill"] = PKillCmd
+	registry["/killall"] = PKillCmd
 }

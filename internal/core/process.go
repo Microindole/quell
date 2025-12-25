@@ -18,6 +18,7 @@ type Process struct {
 	MemoryUsage uint64
 	CpuPercent  float64
 	User        string
+	CreateTime  int64
 }
 
 func (p Process) FilterValue() string {
