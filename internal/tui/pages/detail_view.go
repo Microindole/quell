@@ -5,44 +5,57 @@ import (
 	"strings"
 
 	"github.com/Microindole/quell/internal/core"
+	"github.com/Microindole/quell/internal/tui/components" // 引入组件包
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 var (
-	detailTitleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1).Bold(true)
-	labelStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true).Width(10)
-	detailBoxStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#7D56F4")).Padding(1, 2).MarginTop(1)
-	cpuSparklineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575"))
-	memSparklineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4"))
+	detailTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1).Bold(true)
+	labelStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true).Width(10)
+	detailBoxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#7D56F4")).Padding(1, 2).MarginTop(1)
+	cpuColor         = lipgloss.Color("#04B575")
+	memColor         = lipgloss.Color("#7D56F4")
+	connHeaderStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#626262")).Padding(0, 1)
+	connRowStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#A0A0A0"))
 )
 
 const maxHistory = 40
 
+type ProcessConnectionsMsg []core.Connection
+
 type DetailView struct {
-	state      *SharedState
-	registry   *HandlerRegistry // 增加按键处理
-	process    *core.Process
-	cpuHistory []float64
-	memHistory []float64
-	width      int
+	state       *SharedState
+	registry    *HandlerRegistry
+	process     *core.Process
+	cpuHistory  []float64
+	memHistory  []float64
+	width       int
+	cpuChart    *components.Sparkline
+	memChart    *components.Sparkline
+	connections []core.Connection
 }
 
 func NewDetailView(p *core.Process, state *SharedState, width int) *DetailView {
 	d := &DetailView{
-		state:      state,
-		registry:   &HandlerRegistry{},
-		process:    p,
-		cpuHistory: make([]float64, maxHistory),
-		memHistory: make([]float64, maxHistory),
-		width:      width, // 初始化宽度
+		state:       state,
+		registry:    &HandlerRegistry{},
+		process:     p,
+		cpuHistory:  make([]float64, maxHistory),
+		memHistory:  make([]float64, maxHistory),
+		width:       width,
+		cpuChart:    components.NewSparkline(lipgloss.NewStyle().Foreground(cpuColor)),
+		memChart:    components.NewSparkline(lipgloss.NewStyle().Foreground(memColor)),
+		connections: nil,
 	}
 	d.registerActions()
 	return d
 }
 
-func (d *DetailView) Init() tea.Cmd { return nil }
+func (d *DetailView) Init() tea.Cmd {
+	return d.fetchConnectionsCmd()
+}
 
 func (d *DetailView) Update(msg tea.Msg) (View, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -56,16 +69,18 @@ func (d *DetailView) Update(msg tea.Msg) (View, tea.Cmd) {
 
 	case *core.Process:
 		d.process = msg
-
-		// 1. 更新 CPU 历史
+		// 更新数据历史
 		d.cpuHistory = d.cpuHistory[1:]
 		d.cpuHistory = append(d.cpuHistory, msg.CpuPercent)
 
-		// 2. 更新 Memory 历史 (单位转为 MB，保持数据量级一致)
 		memMB := float64(msg.MemoryUsage) / 1024 / 1024
 		d.memHistory = d.memHistory[1:]
 		d.memHistory = append(d.memHistory, memMB)
 
+		return d, nil
+
+	case ProcessConnectionsMsg:
+		d.connections = msg
 		return d, nil
 
 	case tea.KeyMsg:
@@ -100,25 +115,29 @@ func (d *DetailView) registerActions() {
 		})
 }
 
-// 刷新单个进程数据
 func (d *DetailView) refreshProcessCmd() tea.Cmd {
 	return func() tea.Msg {
-		// 简单起见，重新获取所有进程并找到当前这个
-		// 这种做法虽然暴力但对本地进程监控来说性能足够，且能保证一致性
 		procs, err := d.state.Service.GetProcesses()
 		if err != nil {
 			return nil
 		}
 		for _, p := range procs {
 			if p.PID == d.process.PID {
-				// 返回指针以避免大数据拷贝，需注意 core.Process 若由值传递改为指针更好
-				// 这里假设 Process 是值类型，我们返回其指针给 Update
 				newP := p
 				return &newP
 			}
 		}
-		// 如果找不到，说明进程已死
 		return nil
+	}
+}
+
+func (d *DetailView) fetchConnectionsCmd() tea.Cmd {
+	return func() tea.Msg {
+		conns, err := d.state.Service.GetConnections(d.process.PID)
+		if err != nil {
+			return nil
+		}
+		return ProcessConnectionsMsg(conns)
 	}
 }
 
@@ -135,21 +154,55 @@ func (d *DetailView) View() string {
 		portStr = strings.Join(ps, ", ")
 	}
 
-	cpuGraph := cpuSparklineStyle.Render(renderSparkline(d.cpuHistory))
-	memGraph := memSparklineStyle.Render(renderSparkline(d.memHistory))
+	cpuGraph := d.cpuChart.Render(d.cpuHistory)
+	memGraph := d.memChart.Render(d.memHistory)
 
 	maxWidth := d.width - 12
 	if maxWidth < 20 {
-		maxWidth = 20 // 最小保护
+		maxWidth = 20
 	}
 
 	cpuVal := fmt.Sprintf("%.1f%%", p.CpuPercent)
 	memVal := fmt.Sprintf("%.1f MB", memMB)
 
-	// 定义 Command 样式，强制换行
+	var connSection string
+	if len(d.connections) > 0 {
+		// 有数据：显示表头和前几条
+		lines := []string{connHeaderStyle.Render(fmt.Sprintf("%-6s | %-21s | %-21s | %s", "Proto", "Local", "Remote", "Status"))}
+
+		limit := 5 // 只显示前 5 条
+		for i, c := range d.connections {
+			if i >= limit {
+				lines = append(lines, connRowStyle.Render(fmt.Sprintf("... and %d more", len(d.connections)-limit)))
+				break
+			}
+			// 处理 0.0.0.0
+			remote := fmt.Sprintf("%s:%d", c.RemoteIP, c.RemotePort)
+			if c.RemotePort == 0 {
+				remote = "*"
+			}
+
+			row := fmt.Sprintf("%-6s | %-21s | %-21s | %s", "TCP",
+				fmt.Sprintf("%s:%d", c.LocalIP, c.LocalPort),
+				remote,
+				c.Status,
+			)
+			lines = append(lines, connRowStyle.Render(row))
+		}
+		connSection = "\n\n" + strings.Join(lines, "\n")
+	} else {
+		// 无数据：提示可能是权限问题
+		connSection = "\n\n" + connRowStyle.Render("(No connections or permission denied. Try sudo?)")
+	}
+
+	cmdDisplay := p.Cmdline
+	if len(cmdDisplay) > maxWidth {
+		cmdDisplay = cmdDisplay[:maxWidth-3] + "..."
+	}
+
 	cmdStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#A0A0A0")).
-		Width(maxWidth). // 关键：设置宽度触发自动换行
+		Width(maxWidth).
 		Align(lipgloss.Left)
 
 	rows := []string{
@@ -162,55 +215,11 @@ func (d *DetailView) View() string {
 		fmt.Sprintf("%s %-12s %s", labelStyle.Render("Memory:"), memVal, memGraph),
 		"",
 		labelStyle.Render("Command:"),
-		cmdStyle.Render(p.Cmdline),
+		cmdStyle.Render(cmdDisplay), // 使用截断后的字符串
+		labelStyle.Render("Network:"),
+		connSection,
 	}
 	return detailTitleStyle.Render(fmt.Sprintf(" Process Detail: %s ", p.Name)) + "\n" + detailBoxStyle.Render(strings.Join(rows, "\n"))
 }
 
 func (d *DetailView) ShortHelp() []key.Binding { return d.registry.MakeHelp() }
-
-// renderSparkline 将浮点数切片转换为方块字符图
-// renderSparkline 将浮点数切片转换为波形图
-func renderSparkline(data []float64) string {
-	if len(data) == 0 {
-		return ""
-	}
-
-	m := 0.0
-	for _, v := range data {
-		if v > m {
-			m = v
-		}
-	}
-
-	// 动态调整基准：
-	// 如果最大值很小（比如内存波动只有 0.1MB），我们设置一个最小基准，避免噪点被放大成巨浪。
-	// 对于 CPU，满载是 100，但为了看清微小波动，我们可以设低一点的 floor。
-	if m < 1.0 {
-		m = 1.0
-	}
-
-	// 优化字符集：移除空格，使用 " ▂▃▄▅▆▇█"
-	// 第一个字符是 U+2581 (Lower One Eighth Block)，保证有基准线
-	levels := []rune(" ▂▃▄▅▆▇█")
-
-	var sb strings.Builder
-	for _, v := range data {
-		// 计算高度比例 (0.0 - 1.0)
-		ratio := v / m
-
-		// 映射到索引 (0 - 7)
-		idx := int(ratio * float64(len(levels)-1))
-
-		// 边界保护
-		if idx < 0 {
-			idx = 0
-		}
-		if idx >= len(levels) {
-			idx = len(levels) - 1
-		}
-
-		sb.WriteRune(levels[idx])
-	}
-	return sb.String()
-}

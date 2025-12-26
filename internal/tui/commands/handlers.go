@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Microindole/quell/internal/tui/pages"
 	tea "github.com/charmbracelet/bubbletea"
@@ -118,4 +119,27 @@ func PKillCmd(args []string, state *pages.SharedState) (pages.View, tea.Cmd) {
 
 	// 关闭输入框并执行
 	return nil, tea.Batch(pages.Pop(), cmd)
+}
+
+// PortCmd 实现 /port 8080
+func PortCmd(args []string, state *pages.SharedState) (pages.View, tea.Cmd) {
+	if len(args) == 0 {
+		return nil, func() tea.Msg {
+			return pages.ProcessActionMsg{Err: fmt.Errorf("usage: /port <number>")}
+		}
+	}
+
+	portStr := args[0]
+	if _, err := strconv.Atoi(portStr); err != nil {
+		return nil, func() tea.Msg {
+			return pages.ProcessActionMsg{Err: fmt.Errorf("invalid port number: %s", portStr)}
+		}
+	}
+
+	return nil, tea.Batch(
+		pages.Pop(),
+		tea.Tick(10*time.Millisecond, func(t time.Time) tea.Msg {
+			return pages.SetFilterMsg(":" + portStr)
+		}),
+	)
 }

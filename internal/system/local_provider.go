@@ -18,7 +18,7 @@ type cachedProcess struct {
 
 type LocalProvider struct {
 	mu        sync.Mutex
-	procCache map[int32]cachedProcess // 👈 修改：使用结构体存储
+	procCache map[int32]cachedProcess
 }
 
 func NewLocalProvider() *LocalProvider {
@@ -204,4 +204,32 @@ func (l *LocalProvider) GetCreateTime(pid int32) (int64, error) {
 		return 0, err
 	}
 	return p.CreateTime()
+}
+
+func (l *LocalProvider) GetConnections(pid int32) ([]core.Connection, error) {
+	p, err := process.NewProcess(pid)
+	if err != nil {
+		return nil, err
+	}
+
+	// 获取该进程的所有网络连接
+	conns, err := p.Connections()
+	if err != nil {
+		return []core.Connection{}, nil
+	}
+
+	var results []core.Connection
+	for _, c := range conns {
+		results = append(results, core.Connection{
+			Fd:         c.Fd,
+			Family:     c.Family,
+			Type:       c.Type,
+			LocalIP:    c.Laddr.IP,
+			LocalPort:  int(c.Laddr.Port),
+			RemoteIP:   c.Raddr.IP,
+			RemotePort: int(c.Raddr.Port),
+			Status:     c.Status,
+		})
+	}
+	return results, nil
 }

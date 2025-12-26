@@ -133,3 +133,7 @@ func (s *Service) GetPausedProcs() []struct {
 	}
 	return list
 }
+
+func (s *Service) GetConnections(pid int32) ([]Connection, error) {
+	return s.provider.GetConnections(pid)
+}

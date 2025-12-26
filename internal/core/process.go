@@ -5,6 +5,18 @@ import (
 	"strings"
 )
 
+// Connection 定义网络连接详情
+type Connection struct {
+	Fd         uint32
+	Family     uint32
+	Type       uint32
+	LocalIP    string
+	LocalPort  int
+	RemoteIP   string
+	RemotePort int
+	Status     string // LISTEN, ESTABLISHED, CLOSE_WAIT...
+}
+
 type Process struct {
 	PID        int32
 	PPID       int32
@@ -22,7 +34,12 @@ type Process struct {
 }
 
 func (p Process) FilterValue() string {
-	portsStr := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(p.Ports)), " "), "[]")
+	var ports []string
+	for _, port := range p.Ports {
+		ports = append(ports, fmt.Sprintf(":%d", port))
+	}
+	portsStr := strings.Join(ports, " ")
+
 	return fmt.Sprintf("%s %d %s %s", p.Name, p.PID, portsStr, p.Status)
 }
 

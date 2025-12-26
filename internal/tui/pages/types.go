@@ -32,6 +32,7 @@ type ProcessActionMsg struct {
 }
 
 type ForceRefreshMsg struct{}
+type SetFilterMsg string
 
 func Push(v View) tea.Cmd {
 	return func() tea.Msg { return PushViewMsg{View: v} }

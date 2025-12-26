@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/Microindole/quell/internal/core"
+	"github.com/Microindole/quell/internal/tui/components" // 引用组件
+	"github.com/Microindole/quell/internal/version"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,26 +17,10 @@ import (
 type delayedRefreshMsg struct{}
 
 var (
-	// Logo 样式：使用更亮的紫色，增加一点 Margin
-	logoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#9F7AEA")). // 亮紫色
-			Bold(true).
-			MarginBottom(1)
-
-	// 版本号样式 (Badge 风格)
-	versionStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#1A1A1A")).
-			Background(lipgloss.Color("#04B575")). // 绿色背景
-			Padding(0, 1).
-			Bold(true)
-
-	// 加载文字样式
-	loadingTextStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#626262")).
-				Italic(true).
-				MarginTop(1)
-
-	quellLogo = `
+	logoStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#9F7AEA")).Bold(true).MarginBottom(1)
+	versionStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#1A1A1A")).Background(lipgloss.Color("#04B575")).Padding(0, 1).Bold(true)
+	loadingTextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).Italic(true).MarginTop(1)
+	quellLogo        = `
    ____  __  __________    __ 
   / __ \/ / / / ____/ /   / / 
  / / / / / / / __/ / /   / /  
@@ -43,37 +29,15 @@ var (
 `
 )
 
-// SelectableProcess
-// 它的作用是仅仅在 UI 层重写 Title，加上选中标记
-type SelectableProcess struct {
-	core.Process
-	Selected     bool
-	ShowCheckbox bool
-}
-
-func (s SelectableProcess) Title() string {
-	// 如果不在多选模式，直接返回原始标题 (干干净净，没有 [ ])
-	if !s.ShowCheckbox {
-		return s.Process.Title()
-	}
-
-	// 如果在多选模式，显示 [x] 或 [ ]
-	prefix := lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).Render("[ ] ")
-	if s.Selected {
-		prefix = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Render("[x] ")
-	}
-	return prefix + s.Process.Title()
-}
-
-func (s SelectableProcess) FilterValue() string {
-	return s.Process.FilterValue()
-}
-
 type ClearSelectionMsg struct{}
 
+// ListView 现在是 Controller 角色
 type ListView struct {
-	state          *SharedState
-	list           list.Model
+	state *SharedState
+
+	// 🔥 核心变化：使用封装后的组件
+	processList *components.ProcessList
+
 	registry       *HandlerRegistry
 	sorters        []Sorter
 	currentSortIdx int
@@ -85,13 +49,12 @@ type ListView struct {
 }
 
 func NewListView(state *SharedState, sortIdx int, treeMode bool) *ListView {
-	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
-	l.Title = "Quell - Process Killer"
-	l.SetShowHelp(false)
+	// 初始化组件
+	pl := components.NewProcessList(0, 0)
 
 	v := &ListView{
 		state:          state,
-		list:           l,
+		processList:    pl,
 		registry:       &HandlerRegistry{},
 		sorters:        []Sorter{StatusSorter{}, CPUSorter{}, MemSorter{}, PIDSorter{}},
 		currentSortIdx: sortIdx,
@@ -121,12 +84,13 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		v.list.SetSize(msg.Width-4, msg.Height-4)
+		v.processList.SetSize(msg.Width-4, msg.Height-4)
 
 	case ClearSelectionMsg:
-		v.selectedPids = make(map[int32]bool) // 清空 map
-		v.updateListItems()                   // 强制刷新列表 UI (去掉 [x])
-		return v, nil
+		v.selectedPids = make(map[int32]bool)
+		cmd = v.updateListItems()
+		cmds = append(cmds, cmd)
+		return v, tea.Batch(cmds...)
 
 	case TickMsg:
 		return v, v.refreshListCmd()
@@ -138,13 +102,10 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 				rawProcs = append(rawProcs, p)
 			}
 		}
-
 		v.loading = false
-		v.rawProcesses = rawProcs // 缓存原始数据
-
-		// 🔥 调用统一的更新列表方法
-		v.updateListItems()
-		return v, nil
+		v.rawProcesses = rawProcs
+		cmd = v.updateListItems()
+		return v, cmd
 
 	case ProcessActionMsg:
 		if msg.Err != nil {
@@ -158,53 +119,61 @@ func (v *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 		return v, v.refreshListCmd()
 
 	case tea.KeyMsg:
-		if v.list.FilterState() == list.Filtering {
-			v.list, cmd = v.list.Update(msg)
+		isSearching := v.processList.Inner().FilterState() == list.Filtering || v.processList.Inner().FilterInput.Value() != ""
+
+		if isSearching {
+			if msg.String() == "esc" {
+				v.processList.Inner().ResetFilter()
+				return v, nil
+			}
+			if msg.String() == " " {
+				if p := v.processList.SelectedItem(); p != nil {
+					if v.selectedPids[p.PID] {
+						delete(v.selectedPids, p.PID)
+					} else {
+						v.selectedPids[p.PID] = true
+					}
+					return v, v.updateListItems()
+				}
+				return v, nil
+			}
+
+			v.processList, cmd = v.processList.Update(msg)
 			return v, cmd
 		}
 		if cmd, handled := v.registry.Handle(msg, v); handled {
 			return v, cmd
 		}
+	case SetFilterMsg:
+		// 1. 设置输入框的值
+		v.processList.Inner().FilterInput.SetValue(string(msg))
+		v.processList.Inner().SetFilterState(list.Filtering)
+		return v, v.updateListItems()
 	}
 
-	v.list, cmd = v.list.Update(msg)
+	v.processList, cmd = v.processList.Update(msg)
 	cmds = append(cmds, cmd)
 	return v, tea.Batch(cmds...)
 }
 
-func (v *ListView) updateListItems() {
-	delegate := list.NewDefaultDelegate()
-	if v.treeMode {
-		delegate.ShowDescription = false
-		delegate.SetSpacing(0)
-	} else {
-		delegate.ShowDescription = true
-		delegate.SetSpacing(0)
-	}
-	v.list.SetDelegate(delegate)
+func (v *ListView) updateListItems() tea.Cmd {
+	// 调整组件样式
+	v.processList.SetTreeMode(v.treeMode)
 
-	hasSelection := len(v.selectedPids) > 0
+	filterVal := v.processList.Inner().FilterInput.Value()
+	currentFilterState := v.processList.Inner().FilterState()
 
-	var finalItems []list.Item
+	var finalProcs []core.Process
 
+	// 准备数据
 	if v.treeMode {
 		treeProcs := BuildTree(v.rawProcesses)
-		finalItems = make([]list.Item, len(treeProcs))
-		for i, p := range treeProcs {
-			finalItems[i] = SelectableProcess{
-				Process:      p,
-				Selected:     v.selectedPids[p.PID],
-				ShowCheckbox: hasSelection,
-			}
-		}
-
-		// 状态栏文案
-		if hasSelection {
+		finalProcs = treeProcs
+		if len(v.selectedPids) > 0 {
 			v.status = fmt.Sprintf("%d selected | Tree View", len(v.selectedPids))
 		} else {
 			v.status = fmt.Sprintf("Tree View: %d procs", len(v.rawProcesses))
 		}
-
 	} else {
 		sortedRaw := make([]core.Process, len(v.rawProcesses))
 		copy(sortedRaw, v.rawProcesses)
@@ -213,50 +182,44 @@ func (v *ListView) updateListItems() {
 			return sorter.Less(sortedRaw[i], sortedRaw[j])
 		})
 
-		finalItems = make([]list.Item, len(sortedRaw))
-		for i, p := range sortedRaw {
-			p.TreePrefix = ""
-			finalItems[i] = SelectableProcess{
-				Process:      p,
-				Selected:     v.selectedPids[p.PID],
-				ShowCheckbox: hasSelection,
-			}
+		// 清除 TreePrefix
+		for i := range sortedRaw {
+			sortedRaw[i].TreePrefix = ""
 		}
-		// 状态栏文案
-		if hasSelection {
+
+		finalProcs = sortedRaw
+		if len(v.selectedPids) > 0 {
 			v.status = fmt.Sprintf("%d selected | Total: %d", len(v.selectedPids), len(v.rawProcesses))
 		} else {
 			v.status = fmt.Sprintf("Scanned %d processes.", len(v.rawProcesses))
 		}
 	}
 
-	v.list.SetItems(finalItems)
+	cmd := v.processList.SetItems(finalProcs, v.selectedPids)
+
+	if filterVal != "" {
+		v.processList.Inner().FilterInput.SetValue(filterVal)
+	}
+	v.processList.Inner().SetFilterState(currentFilterState)
+
+	return cmd
 }
 
 func (v *ListView) View() string {
 	if v.loading {
-		w, h := v.list.Width(), v.list.Height()
+		w, h := v.processList.Inner().Width(), v.processList.Inner().Height()
 		if w == 0 || h == 0 {
 			w, h = 80, 24
 		}
-
-		// 组合内容：
-		// Logo
-		// Version Badge (v1.0.0)
-		// Loading Text
 		content := lipgloss.JoinVertical(lipgloss.Center,
 			logoStyle.Render(quellLogo),
-			versionStyle.Render(" v1.0.0 "),                        // 这里写死或从 config 读
-			loadingTextStyle.Render("Initializing Neural Link..."), // 搞点中二的提示语
+			versionStyle.Render(" "+version.Version+" "),
+			loadingTextStyle.Render("Initializing Neural Link..."),
 		)
-
-		return lipgloss.Place(
-			w, h,
-			lipgloss.Center, lipgloss.Center,
-			content,
-		)
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content)
 	}
-	return v.list.View()
+	// 🔥 使用组件渲染
+	return v.processList.View()
 }
 
 func (v *ListView) ShortHelp() []key.Binding { return v.registry.MakeHelp() }
@@ -274,6 +237,8 @@ func (v *ListView) refreshListCmd() tea.Cmd {
 		if err != nil {
 			return nil
 		}
+		// 为了保持 Init 接口兼容，这里我们先转成 []list.Item
+		// (或者你可以直接改 Service 返回类型处理，但为了最小改动，这里做个转换层)
 		items := make([]list.Item, len(procs))
 		for i, p := range procs {
 			items[i] = p
@@ -281,6 +246,7 @@ func (v *ListView) refreshListCmd() tea.Cmd {
 		return items
 	}
 }
+
 func (v *ListView) killCmd(pid int32, force bool) tea.Cmd {
 	return func() tea.Msg {
 		return ProcessActionMsg{
@@ -289,10 +255,10 @@ func (v *ListView) killCmd(pid int32, force bool) tea.Cmd {
 		}
 	}
 }
+
 func (v *ListView) delayedRefreshCmd() tea.Cmd {
 	return tea.Tick(1, func(t time.Time) tea.Msg { return delayedRefreshMsg{} })
 }
 
-func (v *ListView) GetStatus() string { return v.status }
-
+func (v *ListView) GetStatus() string   { return v.status }
 func (v *ListView) GetSortName() string { return v.sorters[v.currentSortIdx].Name() }

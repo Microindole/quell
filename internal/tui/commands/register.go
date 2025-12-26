@@ -19,4 +19,5 @@ func RegisterAll(registry map[string]pages.CommandFunc) {
 
 	registry["/pkill"] = PKillCmd
 	registry["/killall"] = PKillCmd
+	registry["/port"] = PortCmd
 }

@@ -6,4 +6,5 @@ type Provider interface {
 	Suspend(pid int32) error
 	Resume(pid int32) error
 	GetCreateTime(pid int32) (int64, error)
+	GetConnections(pid int32) ([]Connection, error)
 }

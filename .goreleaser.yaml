@@ -20,7 +20,7 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/Microindole/quell/internal/build.Version={{.Version}}
+      - -X github.com/Microindole/quell/internal/version.Version={{.Version}}
       - -X github.com/Microindole/quell/internal/build.Commit={{.Commit}}
       - -X github.com/Microindole/quell/internal/build.Date={{.Date}}
     binary: quell
@@ -36,7 +36,6 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
-# 🔥 Snapshot 配置更新 (旧版已废弃)
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
