@@ -11,7 +11,7 @@ tasks:
   run:
     desc: 直接编译并运行代码
     cmds:
-      - go run ./cmd/quell/main.go
+      - go build -o quell.exe ./cmd/quell && ./quell.exe
 
   build:
     desc: 编译生成二进制文件到 bin 目录

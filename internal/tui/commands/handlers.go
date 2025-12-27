@@ -143,3 +143,16 @@ func PortCmd(args []string, state *pages.SharedState) (pages.View, tea.Cmd) {
 		}),
 	)
 }
+
+// ShareCmd 实现 /share <filepath>
+func ShareCmd(args []string, state *pages.SharedState) (pages.View, tea.Cmd) {
+	if len(args) == 0 {
+		return nil, func() tea.Msg {
+			return pages.ProcessActionMsg{Err: fmt.Errorf("usage: /share <filepath>")}
+		}
+	}
+
+	filePath := args[0]
+	view := pages.NewTransferView(filePath)
+	return view, nil
+}

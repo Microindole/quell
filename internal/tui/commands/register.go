@@ -20,4 +20,7 @@ func RegisterAll(registry map[string]pages.CommandFunc) {
 	registry["/pkill"] = PKillCmd
 	registry["/killall"] = PKillCmd
 	registry["/port"] = PortCmd
+
+	registry["/share"] = ShareCmd
+	registry["/send"] = ShareCmd // 别名
 }

@@ -71,7 +71,6 @@ func (c *CommandInput) Update(msg tea.Msg) (View, tea.Cmd) {
 			value := strings.TrimSpace(c.textInput.Value())
 			return c.executeCommand(value)
 
-		// 🔥 新增：Tab 键循环补全
 		case tea.KeyTab:
 			if len(c.matches) > 0 {
 				// 1. 循环索引
@@ -91,10 +90,6 @@ func (c *CommandInput) Update(msg tea.Msg) (View, tea.Cmd) {
 	}
 
 	c.textInput, cmd = c.textInput.Update(msg)
-
-	// 🔥 每次输入变化后，刷新匹配列表
-	// 注意：如果是 Tab 键触发的 Update，已经在上面 return 了，所以不会执行这里
-	// 这正好符合逻辑：用户手动输入时刷新列表并重置索引；用户 Tab 循环时保持列表不变。
 	currentVal := c.textInput.Value()
 	c.updateMatches(currentVal)
 

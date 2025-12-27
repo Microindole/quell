@@ -23,12 +23,12 @@ func initialModel() model {
 	}
 }
 
-// 3. Init (初始化命令，比如启动时加载数据)
+// Init (初始化命令，比如启动时加载数据)
 func (m model) Init() tea.Cmd {
 	return nil
 }
 
-// 4. Update (消息循环：处理按键)
+// Update (消息循环：处理按键)
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -55,11 +55,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// 5. View (渲染界面)
+// View (渲染界面)
 func (m model) View() string {
-    // 定义一些简单的样式
-    titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1)
-    
+	// 定义一些简单的样式
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1)
+
 	s := titleStyle.Render(" Quell - Process Killer ") + "\n\n"
 
 	for i, choice := range m.choices {
