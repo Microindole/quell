@@ -2,11 +2,12 @@ package domain
 
 // BiliVideoInfo 对应 videoInfo.json 或 .videoInfo 的结构
 type BiliVideoInfo struct {
-	Title    string `json:"title"`  // 视频标题
-	Uname    string `json:"uname"`  // UP主
-	Bvid     string `json:"bvid"`   // BV号
-	Status   string `json:"status"` // "completed"
-	CoverUrl string `json:"coverUrl"`
+	Title     string `json:"title"`  // 视频标题
+	Uname     string `json:"uname"`  // UP主
+	Bvid      string `json:"bvid"`   // BV号
+	Status    string `json:"status"` // "completed"
+	CoverUrl  string `json:"coverUrl"`
+	CoverPath string `json:"coverPath"`
 }
 
 // VideoTask 代表列表中的一行任务

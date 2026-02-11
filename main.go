@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"quell/internal/config"
+	"quell/internal/crawler"
 	"quell/internal/domain"
 	"quell/internal/engine"
 
@@ -37,6 +38,7 @@ func runMergeScript(task domain.VideoTask, ffmpegPath string) error {
 		"-OutputName", safeTitle,
 		"-FFmpegPath", ffmpegPath,
 		"-CoverUrl", task.Info.CoverUrl,
+		"-LocalCoverPath", task.Info.CoverPath,
 	)
 
 	output, err := cmd.CombinedOutput()
@@ -53,10 +55,17 @@ func runMergeScript(task domain.VideoTask, ffmpegPath string) error {
 type sessionState int
 
 const (
-	stateConfigDir sessionState = iota // 输入 B站路径
-	stateConfigFF                      // 输入 FFmpeg 路径
-	stateScanning                      // 扫描中
-	stateList                          // 列表显示
+	stateConfigDir     sessionState = iota // 输入 B站路径
+	stateConfigFF                          // 输入 FFmpeg 路径
+	stateModeSelect                        // 选择模式：本地合并 / 远程下载 [新增]
+	stateScanning                          // 扫描中 (本地)
+	stateList                              // 列表 (本地)
+	stateInputUID                          // 输入 UID (远程) [新增]
+	stateFetching                          // 获取列表中 (远程) [新增]
+	stateRemoteList                        // 远程列表显示 [新增]
+	stateDownloading                       // 下载中 [新增]
+	stateSearchingUser                     // 搜索用户中 [新增]
+	stateUserList                          // 用户列表选择 [新增]
 )
 
 // --- Model ---
@@ -67,6 +76,15 @@ type model struct {
 	table     table.Model
 	spinner   spinner.Model
 	tasks     []domain.VideoTask
+
+	// Remote related
+	remoteVideos []crawler.BiliVideoMeta // 爬取的列表
+	userResults  []crawler.BiliUserMeta  // 搜索到的用户列表
+	selectedUID  string
+	page         int
+	totalVideos  int
+	downloadLog  string // 简单的下载日志
+
 	err       error
 	statusMsg string
 }
@@ -100,7 +118,7 @@ func initialModel() model {
 	loadedCfg, err := config.Load()
 	if err == nil && loadedCfg.BiliDir != "" {
 		m.cfg = *loadedCfg
-		m.state = stateScanning // 有配置直接去扫描
+		m.state = stateModeSelect // 配置好了，去选择模式
 	} else {
 		m.state = stateConfigDir // 没配置先去填 B站路径
 		m.textInput.Placeholder = "请输入 Bilibili 下载缓存路径 (例如 D:\\Videos\\bilibili)"
@@ -182,6 +200,78 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, processCmd(m.tasks[idx], m.cfg.FFmpegPath, idx)
 				}
 			}
+		} else if m.state == stateModeSelect {
+			// 模式选择
+			if msg.String() == "1" {
+				m.state = stateScanning
+				return m, tea.Batch(m.spinner.Tick, scanCmd(m.cfg.BiliDir))
+			} else if msg.String() == "2" {
+				m.state = stateInputUID
+				m.textInput.Reset()
+				m.textInput.Placeholder = "请输入 UP 主 UID 或 昵称"
+				return m, nil
+			}
+		} else if m.state == stateInputUID {
+			// 输入 关键词 / UID
+			if msg.Type == tea.KeyEnter {
+				val := strings.TrimSpace(m.textInput.Value())
+				if val != "" {
+					// 纯数字视为 UID
+					if regexp.MustCompile(`^\d+$`).MatchString(val) {
+						m.selectedUID = val
+						m.page = 1
+						m.state = stateFetching
+						return m, tea.Batch(m.spinner.Tick, fetchVideosCmd(val, 1))
+					} else {
+						// 否则搜索用户
+						m.state = stateSearchingUser
+						return m, tea.Batch(m.spinner.Tick, searchUserCmd(val))
+					}
+				}
+			}
+		} else if m.state == stateUserList {
+			// 选择用户
+			if msg.String() == "enter" {
+				idx := m.table.Cursor()
+				if idx >= 0 && idx < len(m.userResults) {
+					u := m.userResults[idx]
+					m.selectedUID = fmt.Sprintf("%d", u.Mid)
+					m.page = 1
+					m.state = stateFetching
+					return m, tea.Batch(m.spinner.Tick, fetchVideosCmd(m.selectedUID, 1))
+				}
+			}
+		} else if m.state == stateRemoteList {
+			// 远程列表操作
+			if msg.String() == "enter" {
+				idx := m.table.Cursor()
+				if idx >= 0 && idx < len(m.remoteVideos) {
+					v := m.remoteVideos[idx]
+					m.statusMsg = "开始下载: " + v.Title
+					return m, downloadCmd(v.Bvid, m.cfg.BiliDir, m.cfg.FFmpegPath)
+				}
+			}
+		}
+
+	case fetchResultMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("获取视频列表失败: %v", msg.err)
+			m.state = stateInputUID
+			m.textInput.Reset()
+			m.textInput.Placeholder = "请输入 UP 主 UID 或 昵称"
+		} else {
+			m.remoteVideos = msg.videos
+			m.totalVideos = msg.total
+			m.state = stateRemoteList
+			m.refreshRemoteTable()
+			m.statusMsg = fmt.Sprintf("获取成功: 共 %d 个视频 (当前页 %d)。按 Enter 下载。", m.totalVideos, len(m.remoteVideos))
+		}
+
+	case downloadResultMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("下载失败: %v", msg.err)
+		} else {
+			m.statusMsg = "下载成功! 文件已保存。"
 		}
 
 	case scanResultMsg:
@@ -189,6 +279,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateList
 		m.refreshTable()
 		m.statusMsg = fmt.Sprintf("扫描完成，共找到 %d 个视频。按 Enter 处理，按 ↑/↓ 选择。", len(m.tasks))
+
+	case searchUserResultMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("搜索失败: %v", msg.err)
+			m.state = stateInputUID
+		} else {
+			m.userResults = msg.users
+			m.state = stateUserList
+			m.refreshUserTable()
+			m.statusMsg = fmt.Sprintf("搜索到 %d 个用户，请选择。", len(m.userResults))
+		}
 
 	case processResultMsg:
 		if msg.err != nil {
@@ -205,11 +306,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// 组件更新
-	if m.state == stateConfigDir || m.state == stateConfigFF {
+	if m.state == stateConfigDir || m.state == stateConfigFF || m.state == stateInputUID {
 		m.textInput, cmd = m.textInput.Update(msg)
-	} else if m.state == stateList {
+	} else if m.state == stateList || m.state == stateRemoteList || m.state == stateUserList {
 		m.table, cmd = m.table.Update(msg)
-	} else if m.state == stateScanning {
+	} else if m.state == stateScanning || m.state == stateFetching || m.state == stateDownloading || m.state == stateSearchingUser {
 		m.spinner, cmd = m.spinner.Update(msg)
 	}
 
@@ -221,6 +322,37 @@ func (m *model) refreshTable() {
 	for _, t := range m.tasks {
 		rows = append(rows, table.Row{t.Status, t.Info.Uname, t.DisplayTitle()})
 	}
+	m.table.SetColumns([]table.Column{
+		{Title: "状态", Width: 8},
+		{Title: "UP主", Width: 15},
+		{Title: "标题", Width: 50},
+	})
+	m.table.SetRows(rows)
+}
+
+func (m *model) refreshRemoteTable() {
+	rows := []table.Row{}
+	for _, v := range m.remoteVideos {
+		rows = append(rows, table.Row{"未下载", v.Length, v.Title})
+	}
+	m.table.SetColumns([]table.Column{
+		{Title: "状态", Width: 8},
+		{Title: "时长", Width: 10},
+		{Title: "标题", Width: 60},
+	})
+	m.table.SetRows(rows)
+}
+
+func (m *model) refreshUserTable() {
+	rows := []table.Row{}
+	for _, u := range m.userResults {
+		rows = append(rows, table.Row{fmt.Sprintf("%d", u.Mid), u.Uname, fmt.Sprintf("%d粉", u.Fans)})
+	}
+	m.table.SetColumns([]table.Column{
+		{Title: "UID", Width: 12},
+		{Title: "昵称", Width: 20},
+		{Title: "粉丝数", Width: 10},
+	})
 	m.table.SetRows(rows)
 }
 
@@ -237,10 +369,22 @@ func (m model) View() string {
 		return header + "\n  请进行首次配置:\n\n  B站下载目录:\n  " + m.textInput.View() + "\n"
 	case stateConfigFF:
 		return header + "\n  FFmpeg配置 (可选):\n\n  FFmpeg可执行文件路径:\n  " + m.textInput.View() + "\n"
+	case stateModeSelect:
+		return header + "\n  请选择模式:\n\n  [1] 本地缓存合并 (B站官方客户端下载的视频)\n  [2] 远程批量下载 (内置下载器 极速下载)\n\n  请按 1 或 2"
+	case stateInputUID:
+		return header + "\n  批量下载模式:\n\n  请输入 UP 主 UID 或 昵称关键词:\n  " + m.textInput.View() + "\n"
 	case stateScanning:
 		return header + "\n  " + m.spinner.View() + " 正在扫描目录，请稍候...\n"
+	case stateSearchingUser:
+		return header + "\n  " + m.spinner.View() + " 正在搜索用户...\n"
+	case stateFetching:
+		return header + "\n  " + m.spinner.View() + " 正在获取视频列表 (Wbi 签名中)..."
 	case stateList:
-		return header + "\n" + m.table.View() + "\n\n  " + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.statusMsg) + "\n"
+		return header + "\n  [本地缓存列表]\n" + m.table.View() + "\n\n  " + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.statusMsg) + "\n"
+	case stateRemoteList:
+		return header + "\n  [UP主视频列表 - 按回车下载]\n" + m.table.View() + "\n\n  " + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.statusMsg) + "\n"
+	case stateUserList:
+		return header + "\n  [搜索结果 - 请选择UP主]\n" + m.table.View() + "\n\n  " + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.statusMsg) + "\n"
 	}
 	return ""
 }
