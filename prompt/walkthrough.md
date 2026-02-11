@@ -7,27 +7,29 @@
 
 ## 变更详情
 
-- [NEW] [context.md](file:///d:/works/quell/prompt/context.md) (包含新的维护规范)
-- [NEW] [maintain.md](file:///d:/works/quell/prompt/skill/maintain.md) (定义了 Agent 的更新职责)
-- [NEW] [task.md](file:///d:/works/quell/prompt/task.md) (本地同步的进度文档)
-- [NEW] [walkthrough.md](file:///d:/works/quell/prompt/walkthrough.md) (本地同步的总结文档)
-- [NEW] `prompt/skill/` 目录
+- [NEW] `prompt/skill/maintenance/SKILL.md` (重构后的标准格式)
+- [NEW] `prompt/skill/tui/SKILL.md` (专项：TUI 开发)
+- [NEW] `prompt/skill/bilibili_api/SKILL.md` (专项：API 调用)
+- [NEW] `prompt/skill/downloader/SKILL.md` (专项：下载逻辑)
+- [DELETE] `prompt/skill/maintain.md` (原非标准格式文件)
 
 ## 验证结论
 
-1. **`context.md` 更新**: 增加了“维护规范”章节，明确了 Agent 自动同步项目状态的义务，并列出了同步文件的目录结构。
-2. **新增维护技能**: 在 `prompt/skill/maintain.md` 中详细列出了触发更新的时机，包括周期性同步 Antigravity 内部 Artifacts。
-3. **Artifacts 本地化**: 成功将 `task.md` 和 `walkthrough.md` 拷贝到 `prompt/` 目录下，确保上下文在本地有记录。
+1. **标准化**: 所有技能均遵循 `文件夹/SKILL.md` 结构，并包含 YAML 元数据（name, description），符合 Antigravity 的原生技能加载规范。
+2. **专业化分工**: 明确划分了 TUI、API 和下载逻辑三个核心领域，减少了冗余，提高了 Agent 读取的针对性。
+3. **按需读取指引**: `context.md` 明确要求 Agent 在进入特定领域任务前先读取对应技能，确保开发一致性。
 
 目前的 `prompt` 目录结构：
 ```text
 prompt/
-├── TODO.md
-├── context.md
+├── context.md (已更新读取规范)
 ├── task.md
 ├── walkthrough.md
 └── skill/
-    └── maintain.md
+    ├── maintenance/
+    ├── tui/
+    ├── bilibili_api/
+    └── downloader/
 ```
 
 `context.md` 已经包含了项目的主要信息（如 Go 版本、核心依赖和配置文件说明），您可以根据需要进一步完善该文件。
