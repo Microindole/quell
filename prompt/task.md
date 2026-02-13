@@ -1,10 +1,22 @@
-# 任务列表
+# Web GUI 搭建任务列表
 
-- [x] 创建 `prompt/skill` 目录
-- [x] 创建并初始化 `prompt/context.md`
-- [x] 验证目录结构
-- [x] 设置 Agent 自动更新 prompt 目录的规范
-- [x] 同步系统内部 Artifacts (task.md, walkthrough.md 等) 到 `prompt/` 目录
-- [x] 重构技能结构为标准文件夹格式 (SKILL.md + YAML)
-- [x] 增加分工明确的专项技能 (TUI, API, Downloader)
-- [x] 在 `context.md` 中指引 Agent 按需读取技能
+- [ ] **前端基础结构**
+  - [ ] 创建 `web` 目录
+  - [ ] 创建 `web/index.html` (主页面结构)
+  - [ ] 创建 `web/style.css` (暗色主题，卡片布局)
+  - [ ] 创建 `web/app.js` (核心逻辑，API 调用)
+
+- [ ] **后端集成**
+  - [ ] 修改 `embed.go` 以嵌入 `web` 目录
+  - [ ] 修改 `main.go` 以支持启动 Web 服务器
+  - [ ] 确保 `internal/server` API 和前端通信正常
+
+- [ ] **功能实现**
+  - [ ] **配置管理**: 前端读取和保存配置
+  - [ ] **本地扫描**: 展示本地视频文件，支持合并操作
+  - [ ] **远程下载**: 搜索用户，获取视频列表，触发下载
+  - [ ] **实时反馈**: 利用 SSE 显示进度
+
+- [ ] **验证与优化**
+  - [ ] 验证所有 API 端点
+  - [ ] UI 美化与交互优化

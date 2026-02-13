@@ -372,7 +372,11 @@ func (m model) View() string {
 	case stateModeSelect:
 		return header + "\n  请选择模式:\n\n  [1] 本地缓存合并 (B站官方客户端下载的视频)\n  [2] 远程批量下载 (内置下载器 极速下载)\n\n  请按 1 或 2"
 	case stateInputUID:
-		return header + "\n  批量下载模式:\n\n  请输入 UP 主 UID 或 昵称关键词:\n  " + m.textInput.View() + "\n"
+		s := header + "\n  批量下载模式:\n\n  请输入 UP 主 UID 或 昵称关键词:\n  " + m.textInput.View() + "\n"
+		if m.statusMsg != "" {
+			s += "\n  " + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(m.statusMsg) + "\n"
+		}
+		return s
 	case stateScanning:
 		return header + "\n  " + m.spinner.View() + " 正在扫描目录，请稍候...\n"
 	case stateSearchingUser:

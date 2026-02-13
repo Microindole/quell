@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"crypto/md5"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,85 @@ import (
 	"sync"
 	"time"
 )
+
+// --- Cookie / Header 支持 ---
+
+var sessdata string
+
+// SetSessdata 设置 SESSDATA Cookie
+func SetSessdata(s string) {
+	sessdata = s
+}
+
+// buvidCache 通过 B 站指纹接口获取的合法 buvid
+var (
+	buvidMu      sync.Mutex
+	cachedBuvid3 string
+	cachedBuvid4 string
+	buvidFetched bool
+)
+
+// fetchBuvid 从 B 站指纹接口获取合法的 buvid3 和 buvid4
+func fetchBuvid() (string, string) {
+	buvidMu.Lock()
+	defer buvidMu.Unlock()
+
+	if buvidFetched {
+		return cachedBuvid3, cachedBuvid4
+	}
+
+	type spiResp struct {
+		Code int `json:"code"`
+		Data struct {
+			B3 string `json:"b_3"`
+			B4 string `json:"b_4"`
+		} `json:"data"`
+	}
+
+	req, _ := http.NewRequest("GET", "https://api.bilibili.com/x/frontend/finger/spi", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err == nil {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		var result spiResp
+		if json.Unmarshal(body, &result) == nil && result.Code == 0 {
+			cachedBuvid3 = result.Data.B3
+			cachedBuvid4 = result.Data.B4
+			buvidFetched = true
+		}
+	}
+
+	// 如果获取失败，用随机 UUID 兜底
+	if cachedBuvid3 == "" {
+		b := make([]byte, 16)
+		rand.Read(b)
+		b[6] = (b[6] & 0x0f) | 0x40
+		b[8] = (b[8] & 0x3f) | 0x80
+		cachedBuvid3 = fmt.Sprintf("%08X-%04X-%04X-%04X-%012X",
+			b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]) + "infoc"
+		buvidFetched = true
+	}
+
+	return cachedBuvid3, cachedBuvid4
+}
+
+// addCommonHeaders 为请求添加通用 Headers 和 Cookie
+func addCommonHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://www.bilibili.com")
+	buvid3, buvid4 := fetchBuvid()
+	cookie := "buvid3=" + buvid3
+	if buvid4 != "" {
+		cookie += "; buvid4=" + buvid4
+	}
+	if sessdata != "" {
+		cookie += "; SESSDATA=" + sessdata
+	}
+	req.Header.Set("Cookie", cookie)
+}
 
 // Wbi 签名所需的混合密钥表
 var mixinKeyEncTab = []int{
@@ -82,8 +162,7 @@ func GetUserVideos(mid string, pn int) ([]BiliVideoMeta, int, error) {
 	apiURL := "https://api.bilibili.com/x/space/wbi/arc/search?" + signedParams
 
 	req, _ := http.NewRequest("GET", apiURL, nil)
-	// 必须要有 User-Agent，不然直接 403/412
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	addCommonHeaders(req)
 	req.Header.Set("Referer", "https://space.bilibili.com/"+mid)
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -160,7 +239,7 @@ func SearchUsers(keyword string) ([]BiliUserMeta, error) {
 	apiURL := "https://api.bilibili.com/x/web-interface/wbi/search/type?" + signedParams
 
 	req, _ := http.NewRequest("GET", apiURL, nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	addCommonHeaders(req)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)

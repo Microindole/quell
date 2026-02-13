@@ -8,6 +8,7 @@ import (
 type Config struct {
 	BiliDir    string `json:"bili_dir"`
 	FFmpegPath string `json:"ffmpeg_path"`
+	SESSDATA   string `json:"sessdata,omitempty"`
 }
 
 const ConfigFile = "quell_config.json"

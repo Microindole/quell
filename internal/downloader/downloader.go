@@ -16,16 +16,42 @@ import (
 	"quell/internal/crawler"
 )
 
+// --- Cookie 支持 ---
+
+var sessdata string
+
+// SetSessdata 设置 SESSDATA Cookie，用于解锁高清画质
+func SetSessdata(s string) {
+	sessdata = s
+}
+
+// addCommonHeaders 为请求添加通用 Headers（含 Cookie）
+func addCommonHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://www.bilibili.com")
+	if sessdata != "" {
+		req.Header.Set("Cookie", "SESSDATA="+sessdata)
+	}
+}
+
 // --- 数据结构 ---
+
+// PageInfo 单个分P信息
+type PageInfo struct {
+	Cid  int64  // 分P CID
+	Part string // 分P标题
+	Page int    // 分P序号
+}
 
 // VideoInfo 视频基本信息
 type VideoInfo struct {
-	Title string // 标题
-	Bvid  string // BV号
-	Aid   int64  // AV号
-	Cid   int64  // 分P CID
-	Pic   string // 封面 URL
-	Owner string // UP主名称
+	Title string     // 标题
+	Bvid  string     // BV号
+	Aid   int64      // AV号
+	Cid   int64      // 默认 CID（第一P）
+	Pic   string     // 封面 URL
+	Owner string     // UP主名称
+	Pages []PageInfo // 分P列表
 }
 
 // DashStream 单个音视频流信息
@@ -64,8 +90,7 @@ func GetVideoInfo(bvid string) (*VideoInfo, error) {
 	apiURL := "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid
 
 	req, _ := http.NewRequest("GET", apiURL, nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Referer", "https://www.bilibili.com")
+	addCommonHeaders(req)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -84,14 +109,24 @@ func GetVideoInfo(bvid string) (*VideoInfo, error) {
 		return nil, fmt.Errorf("B站 API 错误: %d %s", result.Code, result.Message)
 	}
 
-	return &VideoInfo{
+	info := &VideoInfo{
 		Title: result.Data.Title,
 		Bvid:  result.Data.Bvid,
 		Aid:   result.Data.Aid,
 		Cid:   result.Data.Cid,
 		Pic:   result.Data.Pic,
 		Owner: result.Data.Owner.Name,
-	}, nil
+	}
+
+	for _, p := range result.Data.Pages {
+		info.Pages = append(info.Pages, PageInfo{
+			Cid:  p.Cid,
+			Part: p.Part,
+			Page: p.Page,
+		})
+	}
+
+	return info, nil
 }
 
 // --- 2. 获取播放地址 ---
@@ -137,8 +172,7 @@ func GetPlayURL(aid, cid int64) (video *DashStream, audio *DashStream, err error
 	apiURL := "https://api.bilibili.com/x/player/wbi/playurl?" + signedParams
 
 	req, _ := http.NewRequest("GET", apiURL, nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Referer", "https://www.bilibili.com")
+	addCommonHeaders(req)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -198,8 +232,7 @@ func GetPlayURL(aid, cid int64) (video *DashStream, audio *DashStream, err error
 // DownloadFile 下载文件到指定路径，带进度回调
 func DownloadFile(url, savePath string, onProgress func(downloaded, total int64)) error {
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Referer", "https://www.bilibili.com")
+	addCommonHeaders(req)
 
 	client := &http.Client{Timeout: 30 * time.Minute} // 大文件需要长超时
 	resp, err := client.Do(req)
@@ -254,59 +287,45 @@ func DownloadFile(url, savePath string, onProgress func(downloaded, total int64)
 
 // --- 4. 高层封装 ---
 
-// DownloadVideo 完整的视频下载流程：获取信息 -> 下载 -> 合并
-func DownloadVideo(bvid, outputDir, ffmpegPath string, onStatus func(msg string)) error {
-	if onStatus == nil {
-		onStatus = func(msg string) {} // 空回调
-	}
-
-	// 1. 获取视频信息
-	onStatus("正在获取视频信息...")
-	info, err := GetVideoInfo(bvid)
+// downloadSinglePage 下载单个分P的音视频并合并
+func downloadSinglePage(info *VideoInfo, page PageInfo, outputDir, ffmpegPath, filePrefix string, onStatus func(msg string)) error {
+	// 获取播放地址
+	onStatus(fmt.Sprintf("正在获取 P%d 播放地址...", page.Page))
+	videoStream, audioStream, err := GetPlayURL(info.Aid, page.Cid)
 	if err != nil {
-		return fmt.Errorf("获取视频信息失败: %w", err)
-	}
-	onStatus(fmt.Sprintf("视频: %s (UP主: %s)", info.Title, info.Owner))
-
-	// 2. 获取播放地址
-	onStatus("正在获取播放地址...")
-	videoStream, audioStream, err := GetPlayURL(info.Aid, info.Cid)
-	if err != nil {
-		return fmt.Errorf("获取播放地址失败: %w", err)
+		return fmt.Errorf("获取 P%d 播放地址失败: %w", page.Page, err)
 	}
 
-	// 3. 准备临时文件路径
-	safeTitle := regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(info.Title, "_")
-	videoTmp := filepath.Join(outputDir, safeTitle+"_video.m4s")
-	audioTmp := filepath.Join(outputDir, safeTitle+"_audio.m4s")
-	finalOutput := filepath.Join(outputDir, safeTitle+".mp4")
+	// 准备文件路径
+	videoTmp := filepath.Join(outputDir, filePrefix+"_video.m4s")
+	audioTmp := filepath.Join(outputDir, filePrefix+"_audio.m4s")
+	finalOutput := filepath.Join(outputDir, filePrefix+".mp4")
 
-	// 4. 下载视频流
-	onStatus("正在下载视频流...")
+	// 下载视频流
+	onStatus(fmt.Sprintf("正在下载 P%d 视频流...", page.Page))
 	if err := DownloadFile(videoStream.BaseURL, videoTmp, func(downloaded, total int64) {
 		if total > 0 {
 			pct := float64(downloaded) / float64(total) * 100
-			onStatus(fmt.Sprintf("下载视频: %.1f%% (%d/%d MB)", pct, downloaded/1024/1024, total/1024/1024))
+			onStatus(fmt.Sprintf("P%d 视频: %.1f%% (%d/%d MB)", page.Page, pct, downloaded/1024/1024, total/1024/1024))
 		}
 	}); err != nil {
-		return fmt.Errorf("下载视频流失败: %w", err)
+		return fmt.Errorf("下载 P%d 视频流失败: %w", page.Page, err)
 	}
 
-	// 5. 下载音频流
-	onStatus("正在下载音频流...")
+	// 下载音频流
+	onStatus(fmt.Sprintf("正在下载 P%d 音频流...", page.Page))
 	if err := DownloadFile(audioStream.BaseURL, audioTmp, func(downloaded, total int64) {
 		if total > 0 {
 			pct := float64(downloaded) / float64(total) * 100
-			onStatus(fmt.Sprintf("下载音频: %.1f%% (%d/%d MB)", pct, downloaded/1024/1024, total/1024/1024))
+			onStatus(fmt.Sprintf("P%d 音频: %.1f%% (%d/%d MB)", page.Page, pct, downloaded/1024/1024, total/1024/1024))
 		}
 	}); err != nil {
-		// 清理视频临时文件
 		os.Remove(videoTmp)
-		return fmt.Errorf("下载音频流失败: %w", err)
+		return fmt.Errorf("下载 P%d 音频流失败: %w", page.Page, err)
 	}
 
-	// 6. ffmpeg 合并
-	onStatus("正在合并音视频...")
+	// ffmpeg 合并
+	onStatus(fmt.Sprintf("正在合并 P%d 音视频...", page.Page))
 	ffmpegCmd := "ffmpeg"
 	if ffmpegPath != "" {
 		ffmpegCmd = ffmpegPath
@@ -322,22 +341,13 @@ func DownloadVideo(bvid, outputDir, ffmpegPath string, onStatus func(msg string)
 	)
 
 	output, err := cmd.CombinedOutput()
-	// 无论成功与否，清理临时文件
 	os.Remove(videoTmp)
 	os.Remove(audioTmp)
 
 	if err != nil {
-		return fmt.Errorf("ffmpeg 合并失败: %v | %s", err, string(output))
+		return fmt.Errorf("P%d ffmpeg 合并失败: %v | %s", page.Page, err, string(output))
 	}
 
-	// 7. 下载封面
-	if info.Pic != "" {
-		coverPath := filepath.Join(outputDir, safeTitle+".jpg")
-		// 封面下载失败不影响主流程
-		_ = DownloadFile(info.Pic, coverPath, nil)
-	}
-
-	onStatus(fmt.Sprintf("下载完成: %s", finalOutput))
 	return nil
 }
 
@@ -350,4 +360,52 @@ func sanitizeFilename(name string) string {
 		}
 		return r
 	}, name)
+}
+
+// DownloadVideo 完整的视频下载流程：获取信息 -> 下载所有分P -> 合并
+func DownloadVideo(bvid, outputDir, ffmpegPath string, onStatus func(msg string)) error {
+	if onStatus == nil {
+		onStatus = func(msg string) {} // 空回调
+	}
+
+	// 1. 获取视频信息
+	onStatus("正在获取视频信息...")
+	info, err := GetVideoInfo(bvid)
+	if err != nil {
+		return fmt.Errorf("获取视频信息失败: %w", err)
+	}
+	onStatus(fmt.Sprintf("视频: %s (UP主: %s, 共 %d P)", info.Title, info.Owner, len(info.Pages)))
+
+	safeTitle := regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(info.Title, "_")
+
+	// 2. 遍历所有分P下载
+	multiPage := len(info.Pages) > 1
+	for _, page := range info.Pages {
+		var filePrefix string
+		if multiPage {
+			safePart := sanitizeFilename(page.Part)
+			filePrefix = fmt.Sprintf("%s_P%02d_%s", safeTitle, page.Page, safePart)
+		} else {
+			filePrefix = safeTitle
+		}
+
+		if err := downloadSinglePage(info, page, outputDir, ffmpegPath, filePrefix, onStatus); err != nil {
+			return err
+		}
+
+		onStatus(fmt.Sprintf("P%d 下载完成: %s.mp4", page.Page, filePrefix))
+	}
+
+	// 3. 下载封面（仅一次）
+	if info.Pic != "" {
+		coverPath := filepath.Join(outputDir, safeTitle+".jpg")
+		_ = DownloadFile(info.Pic, coverPath, nil)
+	}
+
+	if multiPage {
+		onStatus(fmt.Sprintf("全部 %d P 下载完成!", len(info.Pages)))
+	} else {
+		onStatus(fmt.Sprintf("下载完成: %s", filepath.Join(outputDir, safeTitle+".mp4")))
+	}
+	return nil
 }

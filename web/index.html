@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quell Web GUI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="brand">
+                <h2>📺 Quell</h2>
+            </div>
+            <nav class="nav-menu">
+                <button class="nav-item active" onclick="app.switchTab('local')">
+                    <span class="icon">📁</span> 本地视频
+                </button>
+                <button class="nav-item" onclick="app.switchTab('remote')">
+                    <span class="icon">☁️</span> 远程下载
+                </button>
+                <button class="nav-item" onclick="app.switchTab('settings')">
+                    <span class="icon">⚙️</span> 设置
+                </button>
+            </nav>
+            <div class="status-bar" id="statusBar">
+                准备就绪
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 本地视频视图 -->
+            <section id="view-local" class="view-section active">
+                <header class="section-header">
+                    <h1>本地视频缓存</h1>
+                    <button class="btn btn-primary" onclick="app.scanLocal()">🔄 刷新列表</button>
+                </header>
+                <div class="card-grid" id="localVideoList">
+                    <!-- 视频卡片将在这里动态生成 -->
+                    <div class="empty-state">点击刷新加载本地视频...</div>
+                </div>
+            </section>
+
+            <!-- 远程下载视图 -->
+            <section id="view-remote" class="view-section" style="display: none;">
+                <header class="section-header">
+                    <h1>远程视频下载</h1>
+                </header>
+                <div class="search-bar">
+                    <input type="text" id="searchInput" placeholder="输入 UP 主 UID 或 关键词..." onkeypress="if(event.key === 'Enter') app.searchRemote()">
+                    <button class="btn btn-primary" onclick="app.searchRemote()">🔍 搜索</button>
+                </div>
+                
+                <!-- 用户搜索结果 -->
+                <div id="userResults" class="user-results" style="display: none;">
+                    <h3>用户搜索结果</h3>
+                    <div class="user-grid" id="userList"></div>
+                </div>
+
+                <!-- 视频列表结果 -->
+                <div id="videoResults" class="video-results">
+                    <div class="list-header" id="videoListHeader" style="display: none;">
+                        <h3>视频列表</h3>
+                        <div class="pagination">
+                            <button onclick="app.prevPage()">上一页</button>
+                            <span id="pageInfo">1</span>
+                            <button onclick="app.nextPage()">下一页</button>
+                        </div>
+                    </div>
+                    <div class="card-grid" id="remoteVideoList"></div>
+                </div>
+            </section>
+
+            <!-- 设置视图 -->
+            <section id="view-settings" class="view-section" style="display: none;">
+                <header class="section-header">
+                    <h1>系统设置</h1>
+                    <button class="btn btn-primary" onclick="app.saveConfig()">💾 保存配置</button>
+                </header>
+                <div class="settings-form">
+                    <div class="form-group">
+                        <label>Bilibili 下载目录 (缓存路径)</label>
+                        <input type="text" id="cfgBiliDir" placeholder="例如 D:\Videos\bilibili">
+                        <small>请确保此路径与 B 站客户端设置的下载路径一致。</small>
+                    </div>
+                    <div class="form-group">
+                        <label>FFmpeg 可执行文件路径</label>
+                        <input type="text" id="cfgFFmpeg" placeholder="例如 D:\Tools\ffmpeg.exe">
+                        <small>若已添加到环境变量 PATH，可留空。</small>
+                    </div>
+                    <div class="form-group">
+                        <label>SESSDATA (可选)</label>
+                        <input type="password" id="cfgSessdata" placeholder="配置 SESSDATA 可提升清晰度">
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <!-- 进度通知容器 -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
