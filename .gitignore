@@ -1,7 +1,15 @@
-
-videoInfo.json
-
+# Binary
 *.exe
 
+# Wails 构建产物
+build/bin/
+
+# Wails 自动生成的前端绑定
+web/wailsjs/
+
+# 运行时产物
+videoInfo.json
 quell_config.json
+
+# 外部依赖源码
 bbdown_src/

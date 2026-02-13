@@ -3,103 +3,191 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quell Web GUI</title>
+    <meta name="color-scheme" content="light dark">
+    <title>Quell</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="app-container">
-        <!-- 侧边栏 -->
-        <aside class="sidebar">
-            <div class="brand">
-                <h2>📺 Quell</h2>
+        <!-- 自定义标题栏 -->
+        <div class="titlebar">
+            <div class="titlebar-drag">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 4H3C2.44772 4 2 4.44772 2 5V17C2 17.5523 2.44772 18 3 18H8.58579L7.29289 19.2929C6.90237 19.6834 7.17895 20.3515 7.73132 20.3515H16.2687C16.8211 20.3515 17.0976 19.6834 16.7071 19.2929L15.4142 18H21C21.5523 18 22 17.5523 22 17V5C22 4.44772 21.5523 4 21 4ZM20 16H4V6H20V16Z" fill="#60CDFF"/>
+                </svg>
+                <span>Quell</span>
             </div>
+            <div class="window-controls">
+                <button class="win-btn" onclick="app.windowMinimise()" title="最小化">
+                    <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6h8" stroke="currentColor" stroke-width="1.2"/></svg>
+                </button>
+                <button class="win-btn" onclick="app.windowMaximise()" title="最大化">
+                    <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+                </button>
+                <button class="win-btn win-btn-close" onclick="app.windowClose()" title="关闭">
+                    <svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.2"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- NavigationView (Sidebar) -->
+        <aside class="sidebar">
             <nav class="nav-menu">
                 <button class="nav-item active" onclick="app.switchTab('local')">
-                    <span class="icon">📁</span> 本地视频
+                    <span class="icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M4 4H10L12 6H20C21.1046 6 22 6.89543 22 8V18C22 19.1046 21.1046 20 20 20H4C2.89543 20 2 19.1046 2 18V6C2 4.89543 2.89543 4 4 4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                        </svg>
+                    </span>
+                    本地视频
                 </button>
                 <button class="nav-item" onclick="app.switchTab('remote')">
-                    <span class="icon">☁️</span> 远程下载
+                    <span class="icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 16V8M12 16L9 13M12 16L15 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M20 17.607C21.4937 17.0253 22 15.607 22 14C22 11.7909 20.2091 10 18 10C17.7289 10 17.4764 10.0577 17.2001 10.132C16.9429 7.37198 14.6144 5.25 11.9798 5.25C9.07982 5.25 6.69239 7.64239 6.69239 10.5C6.69239 10.5901 6.69399 10.6791 6.69711 10.767C4.19515 10.875 2.14917 12.875 2.14917 15.375C2.14917 18.0674 4.33171 20.25 7.02417 20.25H9.99905" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </span>
+                    远程下载
+                </button>
+                <button class="nav-item" onclick="app.switchTab('logs')">
+                    <span class="icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M4 17L10 11L4 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M12 19H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </span>
+                    运行日志
                 </button>
                 <button class="nav-item" onclick="app.switchTab('settings')">
-                    <span class="icon">⚙️</span> 设置
+                    <span class="icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M10.3246 4.31731C10.751 2.5609 13.249 2.5609 13.6754 4.31731C13.9508 5.45193 15.2507 5.99038 16.2478 5.38285C17.7913 4.44239 19.5576 6.2087 18.6172 7.75218C18.0096 8.74925 18.5481 10.0492 19.6827 10.3246C21.4391 10.751 21.4391 13.249 19.6827 13.6754C18.5481 13.9508 18.0096 15.2507 18.6172 16.2478C19.5576 17.7913 17.7913 19.5576 16.2478 18.6172C15.2507 18.0096 13.9508 18.5481 13.6754 19.6827C13.249 21.4391 10.751 21.4391 10.3246 19.6827C10.0492 18.5481 8.74926 18.0096 7.75219 18.6172C6.2087 19.5576 4.44239 17.7913 5.38285 16.2478C5.99038 15.2507 5.45193 13.9508 4.31731 13.6754C2.5609 13.249 2.5609 10.751 4.31731 10.3246C5.45193 10.0492 5.99038 8.74926 5.38285 7.75219C4.44239 6.2087 6.2087 4.44239 7.75219 5.38285C8.74926 5.99038 10.0492 5.45193 10.3246 4.31731Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M15 12C15 13.6569 13.6569 15 12 15C10.3431 15 9 13.6569 9 12C9 10.3431 10.3431 9 12 9C13.6569 9 15 10.3431 15 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </span>
+                    设置
                 </button>
             </nav>
             <div class="status-bar" id="statusBar">
-                准备就绪
+                就绪
             </div>
         </aside>
 
-        <!-- 主内容区 -->
+        <!-- Main Content -->
         <main class="main-content">
-            <!-- 本地视频视图 -->
+            <!-- Local Videos View -->
             <section id="view-local" class="view-section active">
                 <header class="section-header">
                     <h1>本地视频缓存</h1>
-                    <button class="btn btn-primary" onclick="app.scanLocal()">🔄 刷新列表</button>
+                    <button class="btn btn-standard" onclick="app.scanLocal()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 4v6h-6M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                        刷新列表
+                    </button>
                 </header>
                 <div class="card-grid" id="localVideoList">
-                    <!-- 视频卡片将在这里动态生成 -->
-                    <div class="empty-state">点击刷新加载本地视频...</div>
+                    <div class="empty-state">加载中...</div>
                 </div>
             </section>
 
-            <!-- 远程下载视图 -->
-            <section id="view-remote" class="view-section" style="display: none;">
+            <!-- Remote Download View -->
+            <section id="view-remote" class="view-section">
                 <header class="section-header">
                     <h1>远程视频下载</h1>
                 </header>
                 <div class="search-bar">
-                    <input type="text" id="searchInput" placeholder="输入 UP 主 UID 或 关键词..." onkeypress="if(event.key === 'Enter') app.searchRemote()">
-                    <button class="btn btn-primary" onclick="app.searchRemote()">🔍 搜索</button>
+                    <input type="text" id="searchInput" placeholder="请输入 UID 或关键词搜索..." onkeypress="if(event.key === 'Enter') app.searchRemote()">
+                    <button class="btn btn-primary" onclick="app.searchRemote()">
+                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        搜索
+                    </button>
                 </div>
                 
-                <!-- 用户搜索结果 -->
+                <!-- User Results -->
                 <div id="userResults" class="user-results" style="display: none;">
-                    <h3>用户搜索结果</h3>
+                    <h3 style="margin-bottom: 16px; font-weight:600; font-size:16px;">用户搜索结果</h3>
                     <div class="user-grid" id="userList"></div>
                 </div>
 
-                <!-- 视频列表结果 -->
+                <!-- Video Results -->
                 <div id="videoResults" class="video-results">
-                    <div class="list-header" id="videoListHeader" style="display: none;">
-                        <h3>视频列表</h3>
-                        <div class="pagination">
-                            <button onclick="app.prevPage()">上一页</button>
-                            <span id="pageInfo">1</span>
-                            <button onclick="app.nextPage()">下一页</button>
+                    <div class="list-header" id="videoListHeader" style="display: none; align-items:center; justify-content:space-between; margin-bottom:16px;">
+                        <h3 style="font-weight:600; font-size:16px;">视频列表</h3>
+                        <div class="pagination" style="display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-standard btn-sm" onclick="app.prevPage()">&lt;</button>
+                            <span id="pageInfo" style="font-size:12px; color:var(--text-secondary);">1</span>
+                            <button class="btn btn-standard btn-sm" onclick="app.nextPage()">&gt;</button>
                         </div>
                     </div>
                     <div class="card-grid" id="remoteVideoList"></div>
                 </div>
             </section>
 
-            <!-- 设置视图 -->
-            <section id="view-settings" class="view-section" style="display: none;">
+            <!-- Logs View -->
+            <section id="view-logs" class="view-section">
+                <header class="section-header">
+                    <h1>运行日志</h1>
+                    <button class="btn btn-standard" onclick="app.clearLogs()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18"></path>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                        清空日志
+                    </button>
+                </header>
+                <div id="logContainer" class="log-container">
+                    <div class="log-entry">系统就绪。</div>
+                </div>
+            </section>
+
+            <!-- Settings View -->
+            <section id="view-settings" class="view-section">
                 <header class="section-header">
                     <h1>系统设置</h1>
-                    <button class="btn btn-primary" onclick="app.saveConfig()">💾 保存配置</button>
+                    <button class="btn btn-primary" onclick="app.saveConfig()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                            <polyline points="7 3 7 8 15 8"></polyline>
+                        </svg>
+                        保存配置
+                    </button>
                 </header>
                 <div class="settings-form">
                     <div class="form-group">
-                        <label>Bilibili 下载目录 (缓存路径)</label>
-                        <input type="text" id="cfgBiliDir" placeholder="例如 D:\Videos\bilibili">
+                        <label>B站下载目录</label>
+                        <input type="text" id="cfgBiliDir" placeholder="例如: D:\Videos\bilibili">
                         <small>请确保此路径与 B 站客户端设置的下载路径一致。</small>
                     </div>
                     <div class="form-group">
-                        <label>FFmpeg 可执行文件路径</label>
-                        <input type="text" id="cfgFFmpeg" placeholder="例如 D:\Tools\ffmpeg.exe">
+                        <label>FFmpeg 路径</label>
+                        <input type="text" id="cfgFFmpeg" placeholder="例如: D:\Tools\ffmpeg.exe">
                         <small>若已添加到环境变量 PATH，可留空。</small>
                     </div>
                     <div class="form-group">
-                        <label>SESSDATA (可选)</label>
-                        <input type="password" id="cfgSessdata" placeholder="配置 SESSDATA 可提升清晰度">
+                        <label>SESSDATA (Cookie)</label>
+                        <input type="password" id="cfgSessdata" placeholder="解锁 1080P+ 画质需要">
+                    </div>
+                    <div class="form-group">
+                        <label>外观设置</label>
+                        <select id="cfgTheme" onchange="app.setTheme(this.value)">
+                            <option value="system">跟随系统</option>
+                            <option value="dark">深色模式</option>
+                            <option value="light">浅色模式</option>
+                        </select>
                     </div>
                 </div>
             </section>
         </main>
     </div>
     
-    <!-- 进度通知容器 -->
+    <!-- Toasts -->
     <div id="toastContainer" class="toast-container"></div>
 
     <script src="app.js"></script>

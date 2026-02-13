@@ -394,9 +394,26 @@ func (m model) View() string {
 }
 
 func main() {
-	p := tea.NewProgram(initialModel())
-	if _, err := p.Run(); err != nil {
-		fmt.Printf("Alas, there's been an error: %v", err)
-		os.Exit(1)
+	// Parse flags: 默认启动 GUI (wails dev 依赖此行为生成绑定)
+	// 使用 -tui 参数可切换到终端模式
+	tuiMode := false
+	for _, arg := range os.Args {
+		if arg == "-tui" {
+			tuiMode = true
+			break
+		}
 	}
+
+	if tuiMode {
+		// Start TUI
+		p := tea.NewProgram(initialModel())
+		if _, err := p.Run(); err != nil {
+			fmt.Printf("启动 TUI 失败: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Start GUI (default)
+	startGUI()
 }

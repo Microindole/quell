@@ -1,0 +1,11 @@
+{
+    "$schema": "https://wails.io/schemas/config.v2.json",
+    "name": "quell",
+    "outputfilename": "quell",
+    "frontend:dir": "web",
+    "frontend:build": "",
+    "frontend:install": "",
+    "author": {
+        "name": "Quell"
+    }
+}
