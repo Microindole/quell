@@ -1,5 +1,12 @@
 // 核心模块：state、init、导航、主题、窗口控制、toast/log
 
+// 记录最后一次点击位置，用于主题波浪展开原点
+let _themeX = '50%', _themeY = '50%';
+document.addEventListener('mousedown', (e) => {
+    _themeX = (e.clientX / window.innerWidth  * 100).toFixed(1) + '%';
+    _themeY = (e.clientY / window.innerHeight * 100).toFixed(1) + '%';
+});
+
 const app = {
     state: {
         config: {},
@@ -48,7 +55,13 @@ const app = {
     setTheme(theme) {
         this.state.theme = theme;
         localStorage.setItem('theme', theme);
-        this.applyTheme(theme);
+        if (document.startViewTransition) {
+            document.documentElement.style.setProperty('--theme-x', _themeX);
+            document.documentElement.style.setProperty('--theme-y', _themeY);
+            document.startViewTransition(() => this.applyTheme(theme));
+        } else {
+            this.applyTheme(theme);
+        }
     },
 
     applyTheme(theme) {

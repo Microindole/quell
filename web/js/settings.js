@@ -15,6 +15,16 @@ Object.assign(app, {
         }
     },
 
+    async browseBiliDir() {
+        const path = await go.main.App.OpenDirectoryDialog();
+        if (path) document.getElementById('cfgBiliDir').value = path;
+    },
+
+    async browseFFmpeg() {
+        const path = await go.main.App.OpenFileDialog();
+        if (path) document.getElementById('cfgFFmpeg').value = path;
+    },
+
     async saveConfig() {
         const payload = {
             bili_dir:      document.getElementById('cfgBiliDir').value,

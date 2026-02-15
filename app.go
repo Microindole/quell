@@ -231,6 +231,26 @@ func (a *App) DownloadVideo(bvid string, title string) {
 	}()
 }
 
+// --- 对话框 ---
+
+// OpenDirectoryDialog 打开原生目录选择对话框
+func (a *App) OpenDirectoryDialog() (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择 B 站下载目录",
+	})
+}
+
+// OpenFileDialog 打开原生文件选择对话框（用于选 FFmpeg）
+func (a *App) OpenFileDialog() (string, error) {
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择 FFmpeg 可执行文件",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "可执行文件 (*.exe)", Pattern: "*.exe"},
+			{DisplayName: "所有文件", Pattern: "*"},
+		},
+	})
+}
+
 // --- 工具 ---
 
 func (a *App) OpenFolder(path string) error {

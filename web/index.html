@@ -161,12 +161,18 @@
                 <div class="settings-form">
                     <div class="form-group">
                         <label>B站下载目录</label>
-                        <input type="text" id="cfgBiliDir" placeholder="例如: D:\Videos\bilibili">
+                        <div class="input-row">
+                            <input type="text" id="cfgBiliDir" placeholder="例如: D:\Videos\bilibili">
+                            <button class="btn btn-standard" onclick="app.browseBiliDir()">浏览...</button>
+                        </div>
                         <small>请确保此路径与 B 站客户端设置的下载路径一致。</small>
                     </div>
                     <div class="form-group">
                         <label>FFmpeg 路径</label>
-                        <input type="text" id="cfgFFmpeg" placeholder="例如: D:\Tools\ffmpeg.exe">
+                        <div class="input-row">
+                            <input type="text" id="cfgFFmpeg" placeholder="例如: D:\Tools\ffmpeg.exe（留空则使用 PATH）">
+                            <button class="btn btn-standard" onclick="app.browseFFmpeg()">浏览...</button>
+                        </div>
                         <small>若已添加到环境变量 PATH，可留空。</small>
                     </div>
                     <div class="form-group">
