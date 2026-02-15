@@ -197,6 +197,12 @@ input[type="password"]:focus {
 }
 
 /* ===== 日志 ===== */
+.log-container,
+.log-container * {
+    user-select: text !important;
+    cursor: auto !important;
+}
+
 .log-container {
     background-color: var(--nav-bg);
     border: 1px solid var(--control-border);
