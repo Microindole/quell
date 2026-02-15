@@ -101,7 +101,7 @@ func initialModel() model {
 
 func (m model) Init() tea.Cmd {
 	if m.state == stateScanning {
-		return tea.Batch(m.spinner.Tick, scanCmd(m.cfg.BiliDir))
+		return tea.Batch(m.spinner.Tick, scanCmd(m.cfg))
 	}
 	return textinput.Blink
 }
@@ -113,9 +113,9 @@ type processResultMsg struct {
 	err   error
 }
 
-func scanCmd(dir string) tea.Cmd {
+func scanCmd(cfg config.Config) tea.Cmd {
 	return func() tea.Msg {
-		tasks, err := engine.Scan(dir)
+		tasks, err := engine.Scan(cfg.BiliDir, cfg.OutputDir, cfg.OutputFormat)
 		if err != nil {
 			return err // 简单处理，直接返回 error
 		}
@@ -123,9 +123,13 @@ func scanCmd(dir string) tea.Cmd {
 	}
 }
 
-func processCmd(task domain.VideoTask, ffmpegPath string, idx int) tea.Cmd {
+func processCmd(task domain.VideoTask, cfg config.Config, idx int) tea.Cmd {
 	return func() tea.Msg {
-		_, err := engine.RunMerge(task, engine.MergeConfig{FFmpegPath: ffmpegPath})
+		_, err := engine.RunMerge(task, engine.MergeConfig{
+			FFmpegPath:   cfg.FFmpegPath,
+			OutputFormat: cfg.OutputFormat,
+			OutputDir:    cfg.OutputDir,
+		})
 		return processResultMsg{index: idx, err: err}
 	}
 }
@@ -157,7 +161,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cfg.FFmpegPath = val
 					config.Save(m.cfg)
 					m.state = stateScanning
-					return m, tea.Batch(m.spinner.Tick, scanCmd(m.cfg.BiliDir))
+					return m, tea.Batch(m.spinner.Tick, scanCmd(m.cfg))
 				}
 			}
 		} else if m.state == stateList {
@@ -169,14 +173,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.tasks[idx].Status = "处理中..."
 					m.statusMsg = fmt.Sprintf("正在处理: %s", m.tasks[idx].DisplayTitle())
 					m.refreshTable()
-					return m, processCmd(m.tasks[idx], m.cfg.FFmpegPath, idx)
+					return m, processCmd(m.tasks[idx], m.cfg, idx)
 				}
 			}
 		} else if m.state == stateModeSelect {
 			// 模式选择
 			if msg.String() == "1" {
 				m.state = stateScanning
-				return m, tea.Batch(m.spinner.Tick, scanCmd(m.cfg.BiliDir))
+				return m, tea.Batch(m.spinner.Tick, scanCmd(m.cfg))
 			} else if msg.String() == "2" {
 				m.state = stateInputUID
 				m.textInput.Reset()

@@ -5,38 +5,63 @@ import (
 	"os"
 	"path/filepath"
 	"quell/internal/domain"
+	"regexp"
 )
 
-// Scan 遍历 BiliDir 下的一级目录
-func Scan(biliDir string) ([]domain.VideoTask, error) {
+// Scan 递归遍历 BiliDir 下的目录，寻找包含视频元数据的文件夹
+func Scan(biliDir, outputDir, format string) ([]domain.VideoTask, error) {
+	if format == "" {
+		format = "mp4"
+	}
 	var tasks []domain.VideoTask
 
-	entries, err := os.ReadDir(biliDir)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+	err := filepath.WalkDir(biliDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			return nil
 		}
 
-		fullPath := filepath.Join(biliDir, entry.Name())
-		info, ok := parseMeta(fullPath)
-
-		// 只有包含 .m4s 或者是合法的缓存目录才加入列表
-		if !ok && !hasM4S(fullPath) {
-			continue
+		info, ok := parseMeta(path)
+		if !ok {
+			// 如果没有元数据，但有 m4s 文件，也可能是一个任务（虽然信息不全）
+			if !hasM4S(path) {
+				return nil
+			}
 		}
 
-		tasks = append(tasks, domain.VideoTask{
-			Dir:        fullPath,
-			FolderName: entry.Name(),
+		// 构造任务
+		task := domain.VideoTask{
+			Dir:        path,
+			FolderName: filepath.Base(path),
 			Info:       info,
 			Status:     "等待",
-		})
-	}
-	return tasks, nil
+		}
+
+		// 检查是否已存在合并后的文件
+		checkDir := outputDir
+		if checkDir == "" {
+			checkDir = path
+		}
+		safeTitle := sanitizeFilename(task.DisplayTitle())
+		outPath := filepath.Join(checkDir, safeTitle+"."+format)
+		if _, err := os.Stat(outPath); err == nil {
+			task.Status = "完成"
+			task.OutputPath = outPath
+		}
+
+		tasks = append(tasks, task)
+		return nil
+	})
+
+	return tasks, err
+}
+
+// sanitizeFilename 已经在 merge.go 中定义，这里需要确保能访问到或者移动到公共位置
+// 暂时假设我们在同一个 package 下可以调用，或者在这里重写一个简单的
+func sanitizeFilename(name string) string {
+	return regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(name, "_")
 }
 
 // parseMeta 尝试读取 videoInfo.json 或 .videoInfo

@@ -16,6 +16,7 @@ type VideoTask struct {
 	FolderName string        // 文件夹名 (如 30964780940)
 	Info       BiliVideoInfo // 解析出的元数据
 	Status     string        // "等待", "处理中", "完成", "失败"
+	OutputPath string        // 合并后的文件路径
 	ErrMessage string
 }
 

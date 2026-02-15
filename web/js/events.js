@@ -9,10 +9,11 @@ Object.assign(app, {
                 this.toast(`正在合并: ${data.title}`, 'success');
             } else if (data.status === 'done') {
                 const outPath = data.output || '合并完成';
-                this.toast(`合并完成: ${outPath}`, 'success');
+                this.toast(`合并完成`, 'success');
                 this.log(`[SUCCESS] 合并完成，文件位于: ${outPath}`);
                 if (data.index >= 0 && data.index < this.state.localTasks.length) {
-                    this.state.localTasks[data.index].Status = 'SUCCESS';
+                    this.state.localTasks[data.index].Status = '完成';
+                    this.state.localTasks[data.index].OutputPath = outPath;
                     this.renderLocalList();
                 }
             } else if (data.status === 'error') {
@@ -22,6 +23,23 @@ Object.assign(app, {
                     this.renderLocalList();
                 }
             }
+        });
+
+        window.runtime.EventsOn('merge_progress', (data) => {
+            if (statusEl) statusEl.innerText = `[合并中] ${data.message}`;
+        });
+
+        window.runtime.EventsOn('batch_merge', (data) => {
+            if (data.status === 'started') {
+                this.toast('批量合并已开始', 'success');
+            } else if (data.status === 'done') {
+                this.toast('批量合并完成', 'success');
+                this.scanLocal(); // 刷新列表
+            }
+        });
+
+        window.runtime.EventsOn('batch_merge_progress', (data) => {
+            if (statusEl) statusEl.innerText = `[批量合并] ${data.message}`;
         });
 
         window.runtime.EventsOn('download', (data) => {

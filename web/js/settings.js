@@ -6,6 +6,7 @@ Object.assign(app, {
             const cfg = await go.main.App.GetConfig();
             this.state.config = cfg;
             document.getElementById('cfgBiliDir').value   = cfg.bili_dir    || '';
+            document.getElementById('cfgOutputDir').value = cfg.output_dir  || '';
             document.getElementById('cfgFFmpeg').value    = cfg.ffmpeg_path || '';
             document.getElementById('cfgSessdata').value  = cfg.sessdata    || '';
             const fmt = document.getElementById('cfgOutputFormat');
@@ -20,6 +21,11 @@ Object.assign(app, {
         if (path) document.getElementById('cfgBiliDir').value = path;
     },
 
+    async browseOutputDir() {
+        const path = await go.main.App.SelectOutputDir();
+        if (path) document.getElementById('cfgOutputDir').value = path;
+    },
+
     async browseFFmpeg() {
         const path = await go.main.App.OpenFileDialog();
         if (path) document.getElementById('cfgFFmpeg').value = path;
@@ -28,6 +34,7 @@ Object.assign(app, {
     async saveConfig() {
         const payload = {
             bili_dir:      document.getElementById('cfgBiliDir').value,
+            output_dir:    document.getElementById('cfgOutputDir').value,
             ffmpeg_path:   document.getElementById('cfgFFmpeg').value,
             sessdata:      document.getElementById('cfgSessdata').value,
             output_format: document.getElementById('cfgOutputFormat').value,

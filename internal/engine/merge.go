@@ -17,7 +17,9 @@ import (
 // MergeConfig 控制合并行为
 type MergeConfig struct {
 	FFmpegPath   string
-	OutputFormat string // "mp4" 或 "mkv"，默认 "mp4"
+	OutputFormat string           // "mp4" 或 "mkv"，默认 "mp4"
+	OutputDir    string           // 合并结果输出目录，若为空则输出到任务目录
+	OnProgress   func(msg string) // 进度回调，传递当前处理的时间戳或状态
 }
 
 // RunMerge 用纯 Go + FFmpeg 将 B站缓存的 .m4s 合并为视频文件
@@ -41,14 +43,29 @@ func RunMerge(task domain.VideoTask, cfg MergeConfig) (string, error) {
 	coverPath := findCoverImage(task.Dir)
 	safeTitle := sanitizeFilename(task.DisplayTitle())
 
+	// 确定输出目录
+	outDir := cfg.OutputDir
+	if outDir == "" {
+		outDir = task.Dir
+	}
+	// 确保输出目录存在
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return "", fmt.Errorf("创建输出目录失败: %w", err)
+	}
+
 	var lastOutput string
 	for _, pair := range pairs {
 		outName := safeTitle
 		if len(pairs) > 1 {
 			outName = fmt.Sprintf("%s_p%d", safeTitle, pair.Page)
 		}
-		outPath := filepath.Join(task.Dir, outName+"."+cfg.OutputFormat)
-		if err := mergePair(pair, outPath, coverPath, ffmpeg, cfg.OutputFormat); err != nil {
+		outPath := filepath.Join(outDir, outName+"."+cfg.OutputFormat)
+		
+		if cfg.OnProgress != nil {
+			cfg.OnProgress(fmt.Sprintf("正在处理: %s", outName))
+		}
+
+		if err := mergePair(pair, outPath, coverPath, ffmpeg, cfg.OutputFormat, cfg.OnProgress); err != nil {
 			return "", fmt.Errorf("合并第 %d 分P失败: %w", pair.Page, err)
 		}
 		lastOutput = outPath
@@ -63,7 +80,7 @@ type m4sPair struct {
 	Audio string
 }
 
-func mergePair(pair m4sPair, outPath, coverPath, ffmpegPath, format string) error {
+func mergePair(pair m4sPair, outPath, coverPath, ffmpegPath, format string, onProgress func(string)) error {
 	tmpVideo, err := stripBiliHeader(pair.Video)
 	if err != nil {
 		return fmt.Errorf("处理视频流失败: %w", err)
@@ -78,9 +95,42 @@ func mergePair(pair m4sPair, outPath, coverPath, ffmpegPath, format string) erro
 
 	args := buildFFmpegArgs(tmpVideo, tmpAudio, coverPath, outPath, format)
 	cmd := exec.Command(ffmpegPath, args...)
-	output, err := cmd.CombinedOutput()
+
+	if onProgress == nil {
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("FFmpeg 错误: %v\n输出:\n%s", err, string(output))
+		}
+		return nil
+	}
+
+	// 进阶：解析 stderr 获取进度
+	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("FFmpeg 错误: %v\n输出:\n%s", err, string(output))
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	// 解析 time=00:00:00.00 格式
+	re := regexp.MustCompile(`time=(\d+:\d+:\d+\.\d+)`)
+	buf := make([]byte, 1024)
+	for {
+		n, err := stderr.Read(buf)
+		if n > 0 {
+			line := string(buf[:n])
+			if m := re.FindStringSubmatch(line); m != nil {
+				onProgress(m[1])
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("FFmpeg 运行失败: %w", err)
 	}
 	return nil
 }
@@ -151,11 +201,6 @@ func stripBiliHeader(srcPath string) (string, error) {
 
 // findM4SPairs 按分P分组，找出每分P的视频+音频对
 func findM4SPairs(dir string) ([]m4sPair, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
 	type candidate struct {
 		path    string
 		quality int
@@ -163,17 +208,46 @@ func findM4SPairs(dir string) ([]m4sPair, error) {
 	// pageMap[page][0]=最优视频, [1]=最优音频
 	pageMap := make(map[int][2]candidate)
 
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".m4s" {
-			continue
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		page, quality, ok := parseM4SName(e.Name())
+		if d.IsDir() {
+			return nil
+		}
+		if filepath.Ext(path) != ".m4s" {
+			return nil
+		}
+
+		filename := d.Name()
+		page, quality, ok := parseM4SName(filename)
+		
 		if !ok {
-			continue
+			// 尝试兼容新版客户端: video.m4s / audio.m4s
+			// 通常这种结构下，quality 是父目录名，page 可能需要从更上层获取，这里暂时默认为 1
+			// 或者从父目录名尝试解析 quality
+			parentDir := filepath.Base(filepath.Dir(path))
+			if filename == "video.m4s" {
+				q, _ := strconv.Atoi(parentDir)
+				page, quality, ok = 1, q, true
+			} else if filename == "audio.m4s" {
+				q, _ := strconv.Atoi(parentDir)
+				page, quality, ok = 1, q, true
+				if quality == 0 { quality = 30280 } // 给音频一个默认的高 quality 标识
+			}
 		}
-		c := candidate{path: filepath.Join(dir, e.Name()), quality: quality}
+
+		if !ok {
+			return nil
+		}
+
+		c := candidate{path: path, quality: quality}
 		entry := pageMap[page]
-		if quality >= 30200 { // 音频流
+		
+		// 简单的逻辑：quality >= 30200 或者是文件名包含 audio
+		isAudio := quality >= 30200 || filename == "audio.m4s"
+		
+		if isAudio { // 音频流
 			if entry[1].path == "" || quality > entry[1].quality {
 				entry[1] = c
 			}
@@ -183,6 +257,11 @@ func findM4SPairs(dir string) ([]m4sPair, error) {
 			}
 		}
 		pageMap[page] = entry
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	var pairs []m4sPair
@@ -232,6 +311,20 @@ func findCoverImage(dir string) string {
 	return ""
 }
 
-func sanitizeFilename(name string) string {
-	return regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(name, "_")
+func BatchMerge(tasks []domain.VideoTask, cfg MergeConfig) {
+	for i, task := range tasks {
+		if task.Status == "完成" {
+			continue
+		}
+		if cfg.OnProgress != nil {
+			cfg.OnProgress(fmt.Sprintf("[%d/%d] 正在合并: %s", i+1, len(tasks), task.DisplayTitle()))
+		}
+		_, err := RunMerge(task, cfg)
+		if err != nil && cfg.OnProgress != nil {
+			cfg.OnProgress(fmt.Sprintf("合并失败: %s - %v", task.DisplayTitle(), err))
+		}
+	}
+	if cfg.OnProgress != nil {
+		cfg.OnProgress("批量合并完成")
+	}
 }

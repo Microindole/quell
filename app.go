@@ -67,7 +67,7 @@ func (a *App) ScanVideos() ([]domain.VideoTask, error) {
 	if a.cfg.BiliDir == "" {
 		return nil, fmt.Errorf("未配置 B 站目录")
 	}
-	tasks, err := engine.Scan(a.cfg.BiliDir)
+	tasks, err := engine.Scan(a.cfg.BiliDir, a.cfg.OutputDir, a.cfg.OutputFormat)
 	if err != nil {
 		return nil, fmt.Errorf("扫描失败: %w", err)
 	}
@@ -113,6 +113,12 @@ func (a *App) MergeVideo(index int) {
 		outPath, err := engine.RunMerge(task, engine.MergeConfig{
 			FFmpegPath:   a.cfg.FFmpegPath,
 			OutputFormat: a.cfg.OutputFormat,
+			OutputDir:    a.cfg.OutputDir,
+			OnProgress: func(msg string) {
+				runtime.EventsEmit(a.ctx, "merge_progress", map[string]interface{}{
+					"index": index, "message": msg,
+				})
+			},
 		})
 		if err != nil {
 			runtime.EventsEmit(a.ctx, "merge", map[string]interface{}{
@@ -123,6 +129,23 @@ func (a *App) MergeVideo(index int) {
 				"index": index, "status": "done", "output": outPath,
 			})
 		}
+	}()
+}
+
+func (a *App) BatchMergeVideo() {
+	go func() {
+		runtime.EventsEmit(a.ctx, "batch_merge", map[string]interface{}{"status": "started"})
+		engine.BatchMerge(a.tasks, engine.MergeConfig{
+			FFmpegPath:   a.cfg.FFmpegPath,
+			OutputFormat: a.cfg.OutputFormat,
+			OutputDir:    a.cfg.OutputDir,
+			OnProgress: func(msg string) {
+				runtime.EventsEmit(a.ctx, "batch_merge_progress", map[string]interface{}{"message": msg})
+			},
+		})
+		runtime.EventsEmit(a.ctx, "batch_merge", map[string]interface{}{"status": "done"})
+		// 重新扫描以更新状态
+		a.ScanVideos()
 	}()
 }
 
@@ -240,6 +263,20 @@ func (a *App) OpenDirectoryDialog() (string, error) {
 	})
 }
 
+func (a *App) SelectOutputDir() (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择视频导出目录",
+	})
+}
+
+func (a *App) OpenOutputDir() error {
+	dir := a.cfg.OutputDir
+	if dir == "" {
+		return fmt.Errorf("未配置导出目录")
+	}
+	return a.OpenFolder(dir)
+}
+
 // OpenFileDialog 打开原生文件选择对话框（用于选 FFmpeg）
 func (a *App) OpenFileDialog() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
@@ -255,6 +292,13 @@ func (a *App) OpenFileDialog() (string, error) {
 
 func (a *App) OpenFolder(path string) error {
 	cmd := exec.Command("explorer", path)
+	return cmd.Start()
+}
+
+func (a *App) OpenFile(path string) error {
+	// 在 Windows 上，可以通过 explorer /select,path 或者直接 cmd /c start
+	// 这里使用 cmd /c start 以使用默认程序打开
+	cmd := exec.Command("cmd", "/c", "start", "", path)
 	return cmd.Start()
 }
 

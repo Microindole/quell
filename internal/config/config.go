@@ -10,6 +10,7 @@ type Config struct {
 	FFmpegPath   string `json:"ffmpeg_path"`
 	SESSDATA     string `json:"sessdata,omitempty"`
 	OutputFormat string `json:"output_format,omitempty"`
+	OutputDir    string `json:"output_dir,omitempty"`
 }
 
 const ConfigFile = "quell_config.json"

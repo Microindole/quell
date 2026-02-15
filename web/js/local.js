@@ -21,9 +21,20 @@ Object.assign(app, {
         this.renderLocalList();
     },
 
+    triggerBatchMerge() {
+        go.main.App.BatchMergeVideo();
+        this.toast('已启动批量合并', 'success');
+    },
+
     triggerOpenFolder(path) {
         go.main.App.OpenFolder(path).catch(e => {
             this.toast('无法打开文件夹: ' + e, 'error');
+        });
+    },
+
+    triggerOpenFile(path) {
+        go.main.App.OpenFile(path).catch(e => {
+            this.toast('无法打开文件: ' + e, 'error');
         });
     },
 
@@ -35,11 +46,12 @@ Object.assign(app, {
         }
 
         container.innerHTML = this.state.localTasks.map((task, idx) => {
-            const isProcessing = task.Status.includes('处理中') || task.Status.includes('SUCCESS');
-            const statusClass = task.Status.includes('SUCCESS') ? 'text-success' : '';
+            const isProcessing = task.Status.includes('处理中') || task.Status === 'SUCCESS' || task.Status === '完成';
+            const isDone = task.Status === 'SUCCESS' || task.Status === '完成';
+            const statusClass = isDone ? 'text-success' : '';
 
             let statusText = task.Status || '未处理';
-            if (task.Status === 'SUCCESS' || task.Status.includes('SUCCESS')) statusText = '完成';
+            if (isDone) statusText = '完成';
             else if (task.Status.includes('失败')) statusText = '失败';
 
             return `
@@ -60,10 +72,16 @@ Object.assign(app, {
                                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                             </svg>
                         </button>
+                        ${isDone && task.OutputPath ? `
+                        <button class="btn btn-standard btn-sm" onclick="app.triggerOpenFile('${task.OutputPath.replace(/\\/g, '\\\\')}')" title="播放视频">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                            </svg>
+                        </button>` : ''}
                         <button class="btn btn-primary btn-sm"
                             onclick="app.triggerMerge(${idx})"
                             ${isProcessing ? 'disabled' : ''}>
-                            ${isProcessing ? '处理中' : '合并导出'}
+                            ${isProcessing ? (isDone ? '已完成' : '处理中') : '合并导出'}
                         </button>
                     </div>
                 </div>
