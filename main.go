@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -20,37 +18,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
-
-func runMergeScript(task domain.VideoTask, ffmpegPath string) error {
-	// 1. 释放脚本 (这里改个名字，确保每次都用最新的脚本逻辑)
-	scriptName := "merge_v3.ps1"
-	tmpScript := filepath.Join(os.TempDir(), "quell_"+scriptName)
-	// 注意：embed 读取的还是 scripts/merge.ps1
-	data, _ := scriptFS.ReadFile("scripts/merge.ps1")
-	os.WriteFile(tmpScript, data, 0755)
-
-	// 2. 清洗文件名
-	safeTitle := regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(task.DisplayTitle(), "_")
-
-	// 3. 执行 PowerShell
-	// 新增参数: -CoverUrl
-	cmd := exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-File", tmpScript,
-		"-TargetDir", task.Dir,
-		"-OutputName", safeTitle,
-		"-FFmpegPath", ffmpegPath,
-		"-CoverUrl", task.Info.CoverUrl,
-		"-LocalCoverPath", task.Info.CoverPath,
-	)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%v | Output: %s", err, string(output))
-	}
-	if !strings.Contains(string(output), "SUCCESS") {
-		return fmt.Errorf("Script executed but no success signal. Output: %s", string(output))
-	}
-	return nil
-}
 
 // --- UI States ---
 type sessionState int
@@ -158,7 +125,7 @@ func scanCmd(dir string) tea.Cmd {
 
 func processCmd(task domain.VideoTask, ffmpegPath string, idx int) tea.Cmd {
 	return func() tea.Msg {
-		err := runMergeScript(task, ffmpegPath)
+		_, err := engine.RunMerge(task, engine.MergeConfig{FFmpegPath: ffmpegPath})
 		return processResultMsg{index: idx, err: err}
 	}
 }

@@ -11,7 +11,7 @@ import (
 )
 
 func startGUI() {
-	app := NewApp(scriptFS)
+	app := NewApp()
 
 	err := wails.Run(&options.App{
 		Title:     "Quell",

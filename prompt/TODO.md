@@ -9,23 +9,19 @@
 
 ### P0 - 核心体验
 
-- [ ] **Cookie 登录支持**
-  - 支持通过配置文件传入 SESSDATA Cookie
-  - 解锁 1080P / 4K / HDR 画质
-  - 在 `GetPlayURL` 和 `GetVideoInfo` 请求中附带 Cookie
-  - 配置项: `config.Cookie` 字段
+- [x] **Cookie 登录支持**
+  - SESSDATA 通过配置文件传入，GUI/TUI 启动时均自动生效
+  - 解锁 1080P / 4K 画质
 
-- [ ] **分P视频支持**
-  - 获取视频所有分P的 CID 列表
-  - 支持选择下载单P或全部P
-  - 文件名带分P序号和标题
+- [x] **分P视频支持**
+  - GUI: 下载前弹窗选择分P，支持全选；单分P直接下载
+  - TUI: 下载全部分P
 
 ### P1 - 下载体验
 
-- [ ] **多线程下载**
-  - HTTP Range 分段并行下载
-  - 可配置并发数（默认 4 线程）
-  - 提升大文件下载速度
+- [x] **多线程下载**
+  - HTTP Range 分段并行下载（4 线程）
+  - 文件大小 < 2MB 或服务器不支持 Range 时自动回退到单线程
 
 - [ ] **断点续传**
   - 下载中断后可从上次位置继续
@@ -34,6 +30,26 @@
 - [ ] **下载进度条**
   - 在 TUI 中实时显示下载百分比和速度
   - 替代当前的简单文字状态
+
+### P1.5 - 本地合并引擎（已完成主体）
+
+- [x] **移除 PowerShell 依赖**
+  - `engine/merge.go` 完全用纯 Go 重写
+  - `stripBiliHeader()`: 扫描前 256 字节找 ftyp 魔数，跳过 B站私有头部
+  - `findM4SPairs()`: 解析两种命名格式，quality ≥ 30200 = 音频，< 30200 = 视频
+  - 多分P自动输出 `_p1`, `_p2` 后缀文件
+
+- [x] **GUI 封面图显示**
+  - `ScanVideos()` 读取 `image.jpg` / `group.jpg` 转 base64 data URL
+  - 规避 WebView2 不允许从 `http://wails.localhost` 访问 `file://` 路径的限制
+
+- [x] **导出格式选择**
+  - 配置项 `output_format`（`mp4` / `mkv`）
+  - 设置页新增下拉选择器
+
+- [ ] **合并进度反馈**
+  - 目前合并期间无进度显示，仅有"处理中"状态
+  - 可考虑解析 FFmpeg stderr 输出实时推送进度
 
 ### P2 - 功能扩展
 

@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"embed"
+	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -19,28 +20,23 @@ import (
 
 // App 是 Wails 应用的后端结构体，暴露方法给前端调用
 type App struct {
-	ctx      context.Context
-	cfg      config.Config
-	scriptFS embed.FS
-	tasks    []domain.VideoTask
+	ctx   context.Context
+	cfg   config.Config
+	tasks []domain.VideoTask
 }
 
 // NewApp 创建 App 实例
-func NewApp(scriptFS embed.FS) *App {
+func NewApp() *App {
 	cfg, err := config.Load()
 	if err != nil || cfg == nil {
 		cfg = &config.Config{}
 	}
-	return &App{
-		cfg:      *cfg,
-		scriptFS: scriptFS,
-	}
+	return &App{cfg: *cfg}
 }
 
 // startup 在 Wails 应用启动时调用
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	// 初始化 SESSDATA
 	if a.cfg.SESSDATA != "" {
 		crawler.SetSessdata(a.cfg.SESSDATA)
 		downloader.SetSessdata(a.cfg.SESSDATA)
@@ -75,8 +71,25 @@ func (a *App) ScanVideos() ([]domain.VideoTask, error) {
 	if err != nil {
 		return nil, fmt.Errorf("扫描失败: %w", err)
 	}
+	// WebView2 无法访问本地 file:// 路径，转换为 base64 data URL
+	for i := range tasks {
+		if dataURL := coverDataURL(tasks[i].Dir); dataURL != "" {
+			tasks[i].Info.CoverPath = dataURL
+		}
+	}
 	a.tasks = tasks
 	return tasks, nil
+}
+
+// coverDataURL 读取封面图片并返回 base64 data URL，WebView2 可直接用于 <img src="">
+func coverDataURL(dir string) string {
+	for _, name := range []string{"image.jpg", "group.jpg"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err == nil {
+			return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(data)
+		}
+	}
+	return ""
 }
 
 // --- 本地合并 ---
@@ -97,7 +110,10 @@ func (a *App) MergeVideo(index int) {
 			"title": task.DisplayTitle(),
 		})
 
-		outPath, err := engine.RunMerge(task, a.cfg.FFmpegPath, a.scriptFS)
+		outPath, err := engine.RunMerge(task, engine.MergeConfig{
+			FFmpegPath:   a.cfg.FFmpegPath,
+			OutputFormat: a.cfg.OutputFormat,
+		})
 		if err != nil {
 			runtime.EventsEmit(a.ctx, "merge", map[string]interface{}{
 				"index": index, "status": "error", "error": err.Error(),
@@ -119,7 +135,6 @@ type SearchResult struct {
 }
 
 func (a *App) SearchUser(keyword string) (*SearchResult, error) {
-	// 纯数字视为 UID
 	if regexp.MustCompile(`^\d+$`).MatchString(keyword) {
 		return &SearchResult{Type: "uid", UID: keyword}, nil
 	}
@@ -219,8 +234,6 @@ func (a *App) DownloadVideo(bvid string, title string) {
 // --- 工具 ---
 
 func (a *App) OpenFolder(path string) error {
-	safeTitle := regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(filepath.Base(path), "_")
-	_ = safeTitle
 	cmd := exec.Command("explorer", path)
 	return cmd.Start()
 }
