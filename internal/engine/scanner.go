@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"quell/internal/domain"
-	"regexp"
 )
 
 // Scan 递归遍历 BiliDir 下的目录，寻找包含视频元数据的文件夹
@@ -44,8 +43,9 @@ func Scan(biliDir, outputDir, format string) ([]domain.VideoTask, error) {
 		if checkDir == "" {
 			checkDir = path
 		}
-		safeTitle := sanitizeFilename(task.DisplayTitle())
-		outPath := filepath.Join(checkDir, safeTitle+"."+format)
+		// 使用统一的命名逻辑
+		outName := GetOutputName(task, 0)
+		outPath := filepath.Join(checkDir, outName+"."+format)
 		if _, err := os.Stat(outPath); err == nil {
 			task.Status = "完成"
 			task.OutputPath = outPath
@@ -56,12 +56,6 @@ func Scan(biliDir, outputDir, format string) ([]domain.VideoTask, error) {
 	})
 
 	return tasks, err
-}
-
-// sanitizeFilename 已经在 merge.go 中定义，这里需要确保能访问到或者移动到公共位置
-// 暂时假设我们在同一个 package 下可以调用，或者在这里重写一个简单的
-func sanitizeFilename(name string) string {
-	return regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(name, "_")
 }
 
 // parseMeta 尝试读取 videoInfo.json 或 .videoInfo

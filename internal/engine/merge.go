@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"time"
 
 	"quell/internal/domain"
 )
@@ -37,40 +38,64 @@ func RunMerge(task domain.VideoTask, cfg MergeConfig) (string, error) {
 		return "", fmt.Errorf("查找 m4s 文件失败: %w", err)
 	}
 	if len(pairs) == 0 {
-		return "", fmt.Errorf("未找到可合并的 m4s 文件对")
+		return "", fmt.Errorf("未找到可合并性 m4s 文件对")
 	}
 
 	coverPath := findCoverImage(task.Dir)
-	safeTitle := sanitizeFilename(task.DisplayTitle())
 
 	// 确定输出目录
 	outDir := cfg.OutputDir
 	if outDir == "" {
 		outDir = task.Dir
 	}
-	// 确保输出目录存在
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return "", fmt.Errorf("创建输出目录失败: %w", err)
 	}
 
 	var lastOutput string
 	for _, pair := range pairs {
-		outName := safeTitle
-		if len(pairs) > 1 {
-			outName = fmt.Sprintf("%s_p%d", safeTitle, pair.Page)
-		}
+		outName := GetOutputName(task, pair.Page)
 		outPath := filepath.Join(outDir, outName+"."+cfg.OutputFormat)
 		
 		if cfg.OnProgress != nil {
 			cfg.OnProgress(fmt.Sprintf("正在处理: %s", outName))
 		}
 
-		if err := mergePair(pair, outPath, coverPath, ffmpeg, cfg.OutputFormat, cfg.OnProgress); err != nil {
+		if err := mergePair(pair, outPath, coverPath, ffmpeg, cfg.OutputFormat, cfg.OnProgress, task.Info); err != nil {
 			return "", fmt.Errorf("合并第 %d 分P失败: %w", pair.Page, err)
 		}
 		lastOutput = outPath
 	}
 	return lastOutput, nil
+}
+
+// GetOutputName 根据任务信息生成规范的输出文件名（不含后缀）
+func GetOutputName(task domain.VideoTask, page int) string {
+	mainTitle := task.Info.GroupTitle
+	if mainTitle == "" {
+		mainTitle = task.Info.Title
+	}
+	if mainTitle == "" {
+		mainTitle = task.FolderName
+	}
+	safeMainTitle := sanitizeFilename(mainTitle)
+
+	// 如果没有明确的分P，或者是单集，直接返回主标题
+	// 注意：findM4SPairs 找到的对数 len(pairs) 这里拿不到，
+	// 但我们可以根据 task.Info.P 或传入的 page 来判断
+	if page <= 1 && task.Info.P <= 1 {
+		return safeMainTitle
+	}
+
+	pNum := page
+	if pNum == 0 { pNum = task.Info.P }
+	if pNum == 0 { pNum = 1 }
+	
+	subTitle := ""
+	if task.Info.GroupTitle != "" && task.Info.Title != "" && task.Info.Title != task.Info.GroupTitle {
+		subTitle = "." + sanitizeFilename(task.Info.Title)
+	}
+	return fmt.Sprintf("%s.P%d%s", safeMainTitle, pNum, subTitle)
 }
 
 // m4sPair 表示一对视频+音频 m4s 文件
@@ -80,7 +105,7 @@ type m4sPair struct {
 	Audio string
 }
 
-func mergePair(pair m4sPair, outPath, coverPath, ffmpegPath, format string, onProgress func(string)) error {
+func mergePair(pair m4sPair, outPath, coverPath, ffmpegPath, format string, onProgress func(string), info domain.BiliVideoInfo) error {
 	tmpVideo, err := stripBiliHeader(pair.Video)
 	if err != nil {
 		return fmt.Errorf("处理视频流失败: %w", err)
@@ -93,7 +118,7 @@ func mergePair(pair m4sPair, outPath, coverPath, ffmpegPath, format string, onPr
 	}
 	defer os.Remove(tmpAudio)
 
-	args := buildFFmpegArgs(tmpVideo, tmpAudio, coverPath, outPath, format)
+	args := buildFFmpegArgs(tmpVideo, tmpAudio, coverPath, outPath, format, info)
 	cmd := exec.Command(ffmpegPath, args...)
 
 	if onProgress == nil {
@@ -135,20 +160,33 @@ func mergePair(pair m4sPair, outPath, coverPath, ffmpegPath, format string, onPr
 	return nil
 }
 
-func buildFFmpegArgs(videoPath, audioPath, coverPath, outPath, format string) []string {
-	args := []string{"-y", "-i", videoPath, "-i", audioPath}
-	if coverPath != "" {
+func buildFFmpegArgs(videoPath, audioPath, coverPath, outPath, format string, info domain.BiliVideoInfo) []string {
+	// 1. 全局选项
+	args := []string{"-y"}
+
+	// 2. 输入文件 (所有的 -i 必须排在前面)
+	args = append(args, "-i", videoPath, "-i", audioPath)
+	
+	hasCover := coverPath != ""
+	if hasCover && format != "mkv" {
+		// MP4 模式下封面作为第三个输入流
+		args = append(args, "-i", coverPath)
+	}
+
+	// 3. 流映射与编码选项
+	if hasCover {
 		if format == "mkv" {
-			args = append(args,
-				"-attach", coverPath,
+			// MKV 模式使用 -attach
+			args = append(args, 
+				"-map", "0:v", "-map", "1:a", 
+				"-c", "copy",
+				"-attach", coverPath, 
 				"-metadata:s:t:0", "mimetype=image/jpeg",
-				"-map", "0:v", "-map", "1:a", "-c", "copy",
 			)
 		} else {
-			// MP4: embed cover as attached picture stream
-			args = append(args,
-				"-i", coverPath,
-				"-map", "0:v", "-map", "1:a", "-map", "2:v",
+			// MP4 模式映射三个输入流
+			args = append(args, 
+				"-map", "0:v", "-map", "1:a", "-map", "2:v", 
 				"-c", "copy",
 				"-disposition:v:1", "attached_pic",
 			)
@@ -156,7 +194,31 @@ func buildFFmpegArgs(videoPath, audioPath, coverPath, outPath, format string) []
 	} else {
 		args = append(args, "-map", "0:v", "-map", "1:a", "-c", "copy")
 	}
+
+	// 4. 输出元数据 (必须在所有输入之后)
+	if info.Title != "" {
+		args = append(args, "-metadata", "title="+info.Title)
+	}
+	if info.GroupTitle != "" && info.GroupTitle != info.Title {
+		args = append(args, "-metadata", "album="+info.GroupTitle)
+	}
+	if info.Uname != "" {
+		args = append(args, "-metadata", "author="+info.Uname, "-metadata", "artist="+info.Uname)
+	}
+	if info.Bvid != "" {
+		args = append(args, "-metadata", "comment=Bilibili: "+info.Bvid)
+	}
+	if info.Pubdate > 0 {
+		t := time.Unix(info.Pubdate, 0)
+		args = append(args, "-metadata", "date="+t.Format("2006-01-02"))
+	}
+
+	// 5. 输出文件
 	return append(args, outPath)
+}
+
+func sanitizeFilename(name string) string {
+	return regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(name, "_")
 }
 
 // stripBiliHeader 跳过 B站 .m4s 文件的私有头部，写到临时文件并返回路径
