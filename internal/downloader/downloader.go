@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"quell/internal/crawler"
@@ -229,12 +232,156 @@ func GetPlayURL(aid, cid int64) (video *DashStream, audio *DashStream, err error
 
 // --- 3. HTTP 文件下载 ---
 
-// DownloadFile 下载文件到指定路径，带进度回调
+const (
+	parallelWorkers  = 4
+	minParallelBytes = 2 * 1024 * 1024 // 2MB 以上才启用多线程
+)
+
+// DownloadFile 下载文件，大文件自动使用多线程分段下载
 func DownloadFile(url, savePath string, onProgress func(downloaded, total int64)) error {
+	totalSize, rangeOK := probeDownload(url)
+	if rangeOK && totalSize >= minParallelBytes {
+		return downloadParallel(url, savePath, totalSize, parallelWorkers, onProgress)
+	}
+	return downloadSingle(url, savePath, onProgress)
+}
+
+// probeDownload 发送 HEAD 请求探测文件大小及是否支持 Range 下载
+func probeDownload(url string) (int64, bool) {
+	req, _ := http.NewRequest("HEAD", url, nil)
+	addCommonHeaders(req)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		return 0, false
+	}
+	defer resp.Body.Close()
+	supportsRange := strings.EqualFold(resp.Header.Get("Accept-Ranges"), "bytes")
+	return resp.ContentLength, supportsRange && resp.ContentLength > 0
+}
+
+// downloadParallel 多线程分段下载
+func downloadParallel(url, savePath string, totalSize int64, workers int, onProgress func(downloaded, total int64)) error {
+	// 创建并预分配文件
+	if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %w", err)
+	}
+	f, err := os.Create(savePath)
+	if err != nil {
+		return fmt.Errorf("创建文件失败: %w", err)
+	}
+	if err := f.Truncate(totalSize); err != nil {
+		f.Close()
+		return fmt.Errorf("预分配文件失败: %w", err)
+	}
+	f.Close()
+
+	// 划分分段
+	chunkSize := totalSize / int64(workers)
+	type segment struct{ start, end int64 }
+	segs := make([]segment, workers)
+	for i := 0; i < workers; i++ {
+		segs[i].start = int64(i) * chunkSize
+		if i == workers-1 {
+			segs[i].end = totalSize - 1
+		} else {
+			segs[i].end = segs[i].start + chunkSize - 1
+		}
+	}
+
+	// 并发下载各分段
+	var dlBytes int64
+	var wg sync.WaitGroup
+	errCh := make(chan error, workers)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	for _, seg := range segs {
+		wg.Add(1)
+		go func(start, end int64) {
+			defer wg.Done()
+			if err := downloadChunk(ctx, url, savePath, start, end, &dlBytes, totalSize, onProgress); err != nil {
+				if ctx.Err() == nil {
+					select {
+					case errCh <- err:
+					default:
+					}
+					cancel()
+				}
+			}
+		}(seg.start, seg.end)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	if err := <-errCh; err != nil {
+		os.Remove(savePath)
+		return err
+	}
+	return nil
+}
+
+// downloadChunk 下载指定字节范围并写入文件对应偏移
+func downloadChunk(ctx context.Context, url, savePath string, start, end int64, dlBytes *int64, totalSize int64, onProgress func(downloaded, total int64)) error {
+	req, _ := http.NewRequest("GET", url, nil)
+	addCommonHeaders(req)
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+	req = req.WithContext(ctx)
+
+	client := &http.Client{Timeout: 30 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("分段请求失败 [%d-%d]: %w", start, end, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusPartialContent {
+		return fmt.Errorf("服务器拒绝分段请求 (HTTP %d)", resp.StatusCode)
+	}
+
+	file, err := os.OpenFile(savePath, os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("打开文件失败: %w", err)
+	}
+	defer file.Close()
+
+	buf := make([]byte, 256*1024)
+	offset := start
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := file.WriteAt(buf[:n], offset); writeErr != nil {
+				return fmt.Errorf("写入失败: %w", writeErr)
+			}
+			offset += int64(n)
+			total := atomic.AddInt64(dlBytes, int64(n))
+			if onProgress != nil {
+				onProgress(total, totalSize)
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			return fmt.Errorf("读取数据失败: %w", readErr)
+		}
+	}
+	return nil
+}
+
+// downloadSingle 单线程下载（文件较小或服务器不支持 Range 时使用）
+func downloadSingle(url, savePath string, onProgress func(downloaded, total int64)) error {
 	req, _ := http.NewRequest("GET", url, nil)
 	addCommonHeaders(req)
 
-	client := &http.Client{Timeout: 30 * time.Minute} // 大文件需要长超时
+	client := &http.Client{Timeout: 30 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("请求下载地址失败: %w", err)
@@ -246,27 +393,21 @@ func DownloadFile(url, savePath string, onProgress func(downloaded, total int64)
 	}
 
 	totalSize := resp.ContentLength
-
-	// 创建目录
-	dir := filepath.Dir(savePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
 		return fmt.Errorf("创建目录失败: %w", err)
 	}
-
 	file, err := os.Create(savePath)
 	if err != nil {
 		return fmt.Errorf("创建文件失败: %w", err)
 	}
 	defer file.Close()
 
-	buf := make([]byte, 256*1024) // 256KB buffer
+	buf := make([]byte, 256*1024)
 	var downloaded int64
-
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
-			_, writeErr := file.Write(buf[:n])
-			if writeErr != nil {
+			if _, writeErr := file.Write(buf[:n]); writeErr != nil {
 				return fmt.Errorf("写入文件失败: %w", writeErr)
 			}
 			downloaded += int64(n)
@@ -281,7 +422,6 @@ func DownloadFile(url, savePath string, onProgress func(downloaded, total int64)
 			return fmt.Errorf("读取数据失败: %w", readErr)
 		}
 	}
-
 	return nil
 }
 
