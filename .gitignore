@@ -13,3 +13,11 @@ quell_config.json
 
 # 外部依赖源码
 bbdown_src/
+
+# 临时文件
+temp/
+
+# IDE
+.vscode/
+.idea/
+.claude/

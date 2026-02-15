@@ -11,6 +11,7 @@ import (
 	"quell/internal/config"
 	"quell/internal/crawler"
 	"quell/internal/domain"
+	"quell/internal/downloader"
 	"quell/internal/engine"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -118,6 +119,10 @@ func initialModel() model {
 	loadedCfg, err := config.Load()
 	if err == nil && loadedCfg.BiliDir != "" {
 		m.cfg = *loadedCfg
+		if loadedCfg.SESSDATA != "" {
+			crawler.SetSessdata(loadedCfg.SESSDATA)
+			downloader.SetSessdata(loadedCfg.SESSDATA)
+		}
 		m.state = stateModeSelect // 配置好了，去选择模式
 	} else {
 		m.state = stateConfigDir // 没配置先去填 B站路径

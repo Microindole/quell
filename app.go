@@ -149,7 +149,50 @@ func (a *App) GetUserVideos(uid string, page int) (*VideoListResult, error) {
 	return &VideoListResult{Videos: videos, Total: total}, nil
 }
 
+// --- 远程：获取分P列表 ---
+
+// VideoPageResult 分P查询结果
+type VideoPageResult struct {
+	Title string                `json:"title"`
+	Pages []downloader.PageInfo `json:"pages"`
+}
+
+// GetVideoPages 获取视频分P列表，用于下载前的分P选择
+func (a *App) GetVideoPages(bvid string) (*VideoPageResult, error) {
+	info, err := downloader.GetVideoInfo(bvid)
+	if err != nil {
+		return nil, fmt.Errorf("获取视频信息失败: %w", err)
+	}
+	return &VideoPageResult{
+		Title: info.Title,
+		Pages: info.Pages,
+	}, nil
+}
+
 // --- 远程：下载视频 ---
+
+// DownloadVideoPages 下载用户选择的指定分P
+func (a *App) DownloadVideoPages(bvid string, pages []downloader.PageInfo, title string) {
+	go func() {
+		runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
+			"bvid": bvid, "title": title, "status": "started",
+		})
+		err := downloader.DownloadPages(bvid, pages, a.cfg.BiliDir, a.cfg.FFmpegPath, func(msg string) {
+			runtime.EventsEmit(a.ctx, "progress", map[string]interface{}{
+				"bvid": bvid, "message": msg,
+			})
+		})
+		if err != nil {
+			runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
+				"bvid": bvid, "status": "error", "error": err.Error(),
+			})
+		} else {
+			runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
+				"bvid": bvid, "status": "done",
+			})
+		}
+	}()
+}
 
 func (a *App) DownloadVideo(bvid string, title string) {
 	go func() {

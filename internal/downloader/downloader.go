@@ -38,9 +38,9 @@ func addCommonHeaders(req *http.Request) {
 
 // PageInfo 单个分P信息
 type PageInfo struct {
-	Cid  int64  // 分P CID
-	Part string // 分P标题
-	Page int    // 分P序号
+	Cid  int64  `json:"cid"`
+	Part string `json:"part"`
+	Page int    `json:"page"`
 }
 
 // VideoInfo 视频基本信息
@@ -360,6 +360,46 @@ func sanitizeFilename(name string) string {
 		}
 		return r
 	}, name)
+}
+
+// DownloadPages 下载指定的分P列表（用于用户选择部分分P下载）
+func DownloadPages(bvid string, pages []PageInfo, outputDir, ffmpegPath string, onStatus func(msg string)) error {
+	if onStatus == nil {
+		onStatus = func(msg string) {}
+	}
+
+	onStatus("正在获取视频信息...")
+	info, err := GetVideoInfo(bvid)
+	if err != nil {
+		return fmt.Errorf("获取视频信息失败: %w", err)
+	}
+	onStatus(fmt.Sprintf("视频: %s (下载 %d/%d P)", info.Title, len(pages), len(info.Pages)))
+
+	safeTitle := regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(info.Title, "_")
+	multiPage := len(info.Pages) > 1
+
+	for _, page := range pages {
+		var filePrefix string
+		if multiPage {
+			safePart := sanitizeFilename(page.Part)
+			filePrefix = fmt.Sprintf("%s_P%02d_%s", safeTitle, page.Page, safePart)
+		} else {
+			filePrefix = safeTitle
+		}
+
+		if err := downloadSinglePage(info, page, outputDir, ffmpegPath, filePrefix, onStatus); err != nil {
+			return err
+		}
+		onStatus(fmt.Sprintf("P%d 下载完成: %s.mp4", page.Page, filePrefix))
+	}
+
+	if info.Pic != "" {
+		coverPath := filepath.Join(outputDir, safeTitle+".jpg")
+		_ = DownloadFile(info.Pic, coverPath, nil)
+	}
+
+	onStatus(fmt.Sprintf("下载完成，共 %d P", len(pages)))
+	return nil
 }
 
 // DownloadVideo 完整的视频下载流程：获取信息 -> 下载所有分P -> 合并
