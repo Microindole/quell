@@ -33,6 +33,11 @@
 
 ### P1.5 - 本地合并引擎（已完成）
 
+- [x] **CI/CD 与自动化打包**
+  - 集成 GitHub Actions 自动发布 Release
+  - 支持 `standard` 和 `bundled` (内置 FFmpeg) 双版本构建
+  - 实现内置 FFmpeg 的自动释放与路径引导
+
 - [x] **移除 PowerShell 依赖**
   - `engine/merge.go` 完全用纯 Go 重写
   - `stripBiliHeader()`: 扫描前 256 字节找 ftyp 魔数，跳过 B站私有头部

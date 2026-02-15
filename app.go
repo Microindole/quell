@@ -37,6 +37,14 @@ func NewApp() *App {
 // startup 在 Wails 应用启动时调用
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// 如果有嵌入的 FFmpeg 且当前配置为空，自动设置
+	if bundledPath := engine.GetBundledFFmpegPath(); bundledPath != "" {
+		if a.cfg.FFmpegPath == "" {
+			a.cfg.FFmpegPath = bundledPath
+		}
+	}
+
 	if a.cfg.SESSDATA != "" {
 		crawler.SetSessdata(a.cfg.SESSDATA)
 		downloader.SetSessdata(a.cfg.SESSDATA)
