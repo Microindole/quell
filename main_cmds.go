@@ -28,9 +28,18 @@ func fetchVideosCmd(uid string, page int) tea.Cmd {
 	}
 }
 
-func downloadCmd(bvid, workDir, ffmpegPath string) tea.Cmd {
+type downloadProgressMsg struct {
+	Bvid    string
+	Message string
+}
+
+func downloadCmd(bvid, workDir, ffmpegPath string, progressChan chan downloadProgressMsg) tea.Cmd {
 	return func() tea.Msg {
-		err := downloader.DownloadVideo(bvid, workDir, ffmpegPath, nil)
+		err := downloader.DownloadVideo(bvid, workDir, ffmpegPath, func(msg string) {
+			if progressChan != nil {
+				progressChan <- downloadProgressMsg{Bvid: bvid, Message: msg}
+			}
+		})
 		return downloadResultMsg{bvid: bvid, err: err}
 	}
 }

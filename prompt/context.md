@@ -11,7 +11,14 @@ Quell 是一个基于 Go 语言开发的工具，主要用于 Bilibili 视频下
 - **TUI 框架**: [Bubble Tea](https://github.com/charmbracelet/bubbletea)
 - **核心依赖**:
   - FFmpeg (用于音视频合并)
-  - Native Downloader (Go 实现，复刻 BBDown 逻辑，无外部依赖)
+  - Native Downloader (Go 实现，复刻 BBDown 逻辑并进行优化，无外部依赖)
+
+## 下载与 API 逻辑参考 (BBDown)
+通过分析 `bbdown_src`，项目在以下方面参考或复刻了 BBDown 的成熟逻辑：
+- **多接口支持**: 涵盖 Web Wbi、TV、App、PGC (番剧) 以及 International API，支持杜比音效和无损音频。
+- **签名算法**: 实现 Wbi (Web) 和 App 端的签名校验。
+- **多线程下载**: 采用 HTTP Range 分段请求，支持并发下载。
+- **鲁棒性**: 引入了分段重试、断点续传及多 CDN 链接备选。
 
 ## 关键目录结构
 - `prompt/`: 存放 Agent 相关的提示词和上下文
@@ -60,4 +67,4 @@ Quell 是一个基于 Go 语言开发的工具，主要用于 Bilibili 视频下
 - **纯中文界面**: 界面文本（包括选项、Label、Button）必须使用纯中文，严禁出现 "中文 (English)" 这种括号备注形式。
 
 
-*Ctx Updated: 2026-02-15 22:45:00*
+*Ctx Updated: 2026-02-24 23:30:00*

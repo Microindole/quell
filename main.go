@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"quell/internal/config"
@@ -12,6 +13,7 @@ import (
 	"quell/internal/downloader"
 	"quell/internal/engine"
 
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -43,6 +45,7 @@ type model struct {
 	textInput textinput.Model
 	table     table.Model
 	spinner   spinner.Model
+	progress  progress.Model
 	tasks     []domain.VideoTask
 
 	// Remote related
@@ -52,6 +55,7 @@ type model struct {
 	page         int
 	totalVideos  int
 	downloadLog  string // 简单的下载日志
+	progressChan chan downloadProgressMsg
 
 	err       error
 	statusMsg string
@@ -77,9 +81,11 @@ func initialModel() model {
 	)
 
 	m := model{
-		textInput: ti,
-		table:     t,
-		spinner:   s,
+		textInput:    ti,
+		table:        t,
+		spinner:      s,
+		progress:     progress.New(progress.WithDefaultGradient()),
+		progressChan: make(chan downloadProgressMsg),
 	}
 
 	// 尝试加载配置
@@ -224,10 +230,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if idx >= 0 && idx < len(m.remoteVideos) {
 					v := m.remoteVideos[idx]
 					m.statusMsg = "开始下载: " + v.Title
-					return m, downloadCmd(v.Bvid, m.cfg.BiliDir, m.cfg.FFmpegPath)
+					m.state = stateDownloading
+					return m, tea.Batch(
+						m.spinner.Tick,
+						downloadCmd(v.Bvid, m.cfg.BiliDir, m.cfg.FFmpegPath, m.progressChan),
+						waitForProgress(m.progressChan),
+					)
 				}
 			}
 		}
+
+	case downloadProgressMsg:
+		m.statusMsg = msg.Message
+		// 尝试从消息中提取百分比（如果消息中有格式化的百分比）
+		// 我们在 downloader 中格式化的是 "P1 视频: 10.5% ..."
+		// 我们可以解析这个百分比来更新进度条
+		if pctMatch := regexp.MustCompile(`([\d.]+)%`).FindStringSubmatch(msg.Message); len(pctMatch) > 1 {
+			if p, err := strconv.ParseFloat(pctMatch[1], 64); err == nil {
+				cmd = m.progress.SetPercent(p / 100.0)
+			}
+		}
+		return m, tea.Batch(cmd, waitForProgress(m.progressChan))
 
 	case fetchResultMsg:
 		if msg.err != nil {
@@ -244,6 +267,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case downloadResultMsg:
+		m.state = stateRemoteList
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("下载失败: %v", msg.err)
 		} else {
@@ -332,6 +356,12 @@ func (m *model) refreshUserTable() {
 	m.table.SetRows(rows)
 }
 
+func waitForProgress(ch chan downloadProgressMsg) tea.Cmd {
+	return func() tea.Msg {
+		return <-ch
+	}
+}
+
 // --- View ---
 func (m model) View() string {
 	if m.err != nil {
@@ -365,6 +395,8 @@ func (m model) View() string {
 		return header + "\n  [UP主视频列表 - 按回车下载]\n" + m.table.View() + "\n\n  " + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.statusMsg) + "\n"
 	case stateUserList:
 		return header + "\n  [搜索结果 - 请选择UP主]\n" + m.table.View() + "\n\n  " + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(m.statusMsg) + "\n"
+	case stateDownloading:
+		return header + "\n  [下载中]\n\n  " + m.statusMsg + "\n\n" + m.progress.View() + "\n\n  " + m.spinner.View() + " 正在下载/合并中..."
 	}
 	return ""
 }
