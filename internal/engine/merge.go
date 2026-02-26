@@ -88,10 +88,15 @@ func GetOutputName(task domain.VideoTask, page int) string {
 		return safeMainTitle
 	}
 
-	pNum := page
-	if pNum == 0 { pNum = task.Info.P }
-	if pNum == 0 { pNum = 1 }
-	
+	// 彻底信任元数据中的 P 号，忽略文件名中的序号（文件名序号如 _p2 往往不准）
+	pNum := task.Info.P
+	if pNum <= 0 {
+		pNum = page
+	}
+	if pNum <= 0 {
+		pNum = 1
+	}
+
 	subTitle := ""
 	if task.Info.GroupTitle != "" && task.Info.Title != "" && task.Info.Title != task.Info.GroupTitle {
 		subTitle = "." + sanitizeFilename(task.Info.Title)
@@ -289,7 +294,7 @@ func findM4SPairs(dir, ffmpegPath string) ([]m4sPair, error) {
 		isAudioFound := false
 		isAudio := false
 		lowerName := strings.ToLower(filename)
-		if strings.Contains(lowerName, "audio") || strings.Contains(lowerName, "_nb") || strings.Contains(lowerName, "_a") {
+		if strings.Contains(lowerName, "audio") || strings.Contains(lowerName, "_a") {
 			isAudio = true
 			isAudioFound = true
 		} else if strings.Contains(lowerName, "video") || strings.Contains(lowerName, "_sr") || strings.Contains(lowerName, "_v") {
