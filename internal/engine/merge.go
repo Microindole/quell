@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"quell/internal/domain"
@@ -33,7 +34,7 @@ func RunMerge(task domain.VideoTask, cfg MergeConfig) (string, error) {
 		ffmpeg = "ffmpeg"
 	}
 
-	pairs, err := findM4SPairs(task.Dir)
+	pairs, err := findM4SPairs(task.Dir, ffmpeg)
 	if err != nil {
 		return "", fmt.Errorf("查找 m4s 文件失败: %w", err)
 	}
@@ -262,7 +263,7 @@ func stripBiliHeader(srcPath string) (string, error) {
 }
 
 // findM4SPairs 按分P分组，找出每分P的视频+音频对
-func findM4SPairs(dir string) ([]m4sPair, error) {
+func findM4SPairs(dir, ffmpegPath string) ([]m4sPair, error) {
 	type candidate struct {
 		path    string
 		quality int
@@ -284,18 +285,30 @@ func findM4SPairs(dir string) ([]m4sPair, error) {
 		filename := d.Name()
 		page, quality, ok := parseM4SName(filename)
 		
+		// 1. 第一层：根据文件名关键字判断 (极快)
+		isAudioFound := false
+		isAudio := false
+		lowerName := strings.ToLower(filename)
+		if strings.Contains(lowerName, "audio") || strings.Contains(lowerName, "_nb") || strings.Contains(lowerName, "_a") {
+			isAudio = true
+			isAudioFound = true
+		} else if strings.Contains(lowerName, "video") || strings.Contains(lowerName, "_sr") || strings.Contains(lowerName, "_v") {
+			isAudio = false
+			isAudioFound = true
+		}
+
 		if !ok {
-			// 尝试兼容新版客户端: video.m4s / audio.m4s
-			// 通常这种结构下，quality 是父目录名，page 可能需要从更上层获取，这里暂时默认为 1
-			// 或者从父目录名尝试解析 quality
-			parentDir := filepath.Base(filepath.Dir(path))
-			if filename == "video.m4s" {
-				q, _ := strconv.Atoi(parentDir)
-				page, quality, ok = 1, q, true
-			} else if filename == "audio.m4s" {
-				q, _ := strconv.Atoi(parentDir)
-				page, quality, ok = 1, q, true
-				if quality == 0 { quality = 30280 } // 给音频一个默认的高 quality 标识
+			// 如果正则识别不出来，但是上面关键字识别出来了，给一个默认 page=1
+			if isAudioFound {
+				page, ok = 1, true
+			} else {
+				// 2. 第二层：如果连关键字都没识别出来，通过 ffprobe 探测 (慢，作为兜底)
+				var probeErr error
+				isAudio, probeErr = probeM4SType(path, ffmpegPath)
+				if probeErr == nil {
+					page, ok = 1, true
+					isAudioFound = true
+				}
 			}
 		}
 
@@ -303,11 +316,13 @@ func findM4SPairs(dir string) ([]m4sPair, error) {
 			return nil
 		}
 
+		// 3. 第三层：兜底策略（如果之前没通过关键字或 probe 确定，用 quality ID）
+		if !isAudioFound {
+			isAudio = quality >= 30200 && quality < 100000
+		}
+
 		c := candidate{path: path, quality: quality}
 		entry := pageMap[page]
-		
-		// 简单的逻辑：quality >= 30200 或者是文件名包含 audio
-		isAudio := quality >= 30200 || filename == "audio.m4s"
 		
 		if isAudio { // 音频流
 			if entry[1].path == "" || quality > entry[1].quality {
@@ -336,6 +351,36 @@ func findM4SPairs(dir string) ([]m4sPair, error) {
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i].Page < pairs[j].Page })
 	return pairs, nil
 }
+
+// probeM4SType 使用 ffprobe 或 ffmpeg 探测文件的实际流类型 (需要先剥离头部)
+func probeM4SType(path, ffmpegPath string) (isAudio bool, err error) {
+	tmp, err := stripBiliHeader(path)
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(tmp)
+
+	// 尝试构造 ffprobe 路径
+	ffprobePath := strings.Replace(ffmpegPath, "ffmpeg", "ffprobe", 1)
+	
+	var cmd *exec.Cmd
+	// 检查 ffprobe 是否可用
+	if _, err := exec.LookPath(ffprobePath); err == nil || (ffprobePath != "ffprobe" && ffprobePath != ffmpegPath) {
+		cmd = exec.Command(ffprobePath, "-v", "error", "-show_entries", "stream=codec_type", "-of", "default=noprint_wrappers=1:nokey=1", tmp)
+	} else {
+		// 降级使用 ffmpeg -i
+		cmd = exec.Command(ffmpegPath, "-i", tmp)
+	}
+
+	// ffmpeg -i 的流信息通常输出在 CombinedOutput (stdout/stderr) 中
+	out, _ := cmd.CombinedOutput()
+	s := strings.ToLower(string(out))
+	if strings.Contains(s, "audio") {
+		return true, nil
+	}
+	return false, nil // 默认认为视频
+}
+
 
 // parseM4SName 解析 B站 .m4s 文件名，提取分P序号和画质代码
 //
