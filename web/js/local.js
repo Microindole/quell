@@ -49,7 +49,7 @@ Object.assign(app, {
             const isProcessing = task.Status.includes('处理中') || task.Status === 'SUCCESS' || task.Status === '完成';
             const isDone = task.Status === 'SUCCESS' || task.Status === '完成';
             const statusClass = isDone ? 'text-success' : '';
-
+            const fromRemote = task.Info.status === 'remote_without_cache';
             let statusText = task.Status || '未处理';
             if (isDone) statusText = '完成';
             else if (task.Status.includes('失败')) statusText = '失败';
@@ -65,6 +65,7 @@ Object.assign(app, {
                     <h5 class="card-title" title="${task.Info.title}">${task.Info.title}</h5>
                     <div class="card-meta">
                         <span class="${statusClass}">${statusText}</span>
+                        ${fromRemote ? '<span>无本地缓存</span>' : ''}
                     </div>
                     <div class="card-actions">
                         <button class="btn btn-standard btn-sm" onclick="app.triggerOpenFolder('${task.Dir.replace(/\\/g, '\\\\')}')" title="打开文件夹">

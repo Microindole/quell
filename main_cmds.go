@@ -20,7 +20,7 @@ type downloadResultMsg struct {
 
 func fetchVideosCmd(uid string, page int) tea.Cmd {
 	return func() tea.Msg {
-		videos, total, err := crawler.GetUserVideos(uid, page)
+		videos, total, err := crawler.GetUserVideos(uid, page, 30)
 		if err != nil {
 			return fetchResultMsg{err: err}
 		}
@@ -35,7 +35,7 @@ type downloadProgressMsg struct {
 
 func downloadCmd(bvid, workDir, ffmpegPath string, progressChan chan downloadProgressMsg) tea.Cmd {
 	return func() tea.Msg {
-		err := downloader.DownloadVideo(bvid, workDir, ffmpegPath, downloader.DownloadPreference{}, func(msg string) {
+		err := downloader.DownloadVideo(bvid, workDir, ffmpegPath, 0, downloader.DownloadPreference{}, func(msg string) {
 			if progressChan != nil {
 				progressChan <- downloadProgressMsg{Bvid: bvid, Message: msg}
 			}

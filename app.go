@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"quell/internal/config"
 	"quell/internal/crawler"
@@ -128,6 +130,25 @@ func (a *App) ScanVideos() ([]domain.VideoTask, error) {
 	if err != nil {
 		return nil, fmt.Errorf("扫描失败: %w", err)
 	}
+	outputOnlyTasks, err := engine.ScanOutputOnlyVideos(a.remoteOutputDir())
+	if err != nil {
+		return nil, fmt.Errorf("扫描输出目录视频失败: %w", err)
+	}
+
+	if len(outputOnlyTasks) > 0 {
+		exists := make(map[string]struct{}, len(tasks))
+		for _, t := range tasks {
+			if t.OutputPath != "" {
+				exists[t.OutputPath] = struct{}{}
+			}
+		}
+		for _, ot := range outputOnlyTasks {
+			if _, ok := exists[ot.OutputPath]; ok {
+				continue
+			}
+			tasks = append(tasks, ot)
+		}
+	}
 	// WebView2 无法访问本地 file:// 路径，转换为 base64 data URL
 	for i := range tasks {
 		if dataURL := coverDataURL(tasks[i].Dir); dataURL != "" {
@@ -234,19 +255,35 @@ func (a *App) SearchUser(keyword string) (*SearchResult, error) {
 // --- 远程：获取视频列表 ---
 
 type VideoListResult struct {
-	Videos []crawler.BiliVideoMeta `json:"videos"`
-	Total  int                     `json:"total"`
+	Videos     []crawler.BiliVideoMeta `json:"videos"`
+	Total      int                     `json:"total"`
+	Page       int                     `json:"page"`
+	PageSize   int                     `json:"page_size"`
+	TotalPages int                     `json:"total_pages"`
 }
 
-func (a *App) GetUserVideos(uid string, page int) (*VideoListResult, error) {
+func (a *App) GetUserVideos(uid string, page int, pageSize int) (*VideoListResult, error) {
 	if page <= 0 {
 		page = 1
 	}
-	videos, total, err := crawler.GetUserVideos(uid, page)
+	if pageSize <= 0 {
+		pageSize = 30
+	}
+	videos, total, err := crawler.GetUserVideos(uid, page, pageSize)
 	if err != nil {
 		return nil, fmt.Errorf("获取视频列表失败: %w", err)
 	}
-	return &VideoListResult{Videos: videos, Total: total}, nil
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+	}
+	return &VideoListResult{
+		Videos:     videos,
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+	}, nil
 }
 
 // --- 远程：获取分P列表 ---
@@ -283,6 +320,17 @@ func (a *App) DownloadVideoPages(bvid string, pages []downloader.PageInfo, title
 	go func() {
 		lastMsg := ""
 		outputDir := a.remoteOutputDir()
+		defer func() {
+			if r := recover(); r != nil {
+				runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
+					"bvid":         bvid,
+					"status":       "error",
+					"error":        fmt.Sprintf("下载任务异常崩溃: %v", r),
+					"output_dir":   outputDir,
+					"last_message": lastMsg,
+				})
+			}
+		}()
 		runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
 			"bvid": bvid, "title": title, "status": "started", "output_dir": outputDir,
 		})
@@ -304,14 +352,29 @@ func (a *App) DownloadVideoPages(bvid string, pages []downloader.PageInfo, title
 	}()
 }
 
-func (a *App) DownloadVideo(bvid string, title string, pref downloader.DownloadPreference) {
+func (a *App) DownloadVideo(bvid string, title string, length string, pref downloader.DownloadPreference) {
 	go func() {
 		lastMsg := ""
 		outputDir := a.remoteOutputDir()
+		expectedDurationSec := int64(0)
+		if sec, err := parseClockDurationToSeconds(length); err == nil {
+			expectedDurationSec = sec
+		}
+		defer func() {
+			if r := recover(); r != nil {
+				runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
+					"bvid":         bvid,
+					"status":       "error",
+					"error":        fmt.Sprintf("下载任务异常崩溃: %v", r),
+					"output_dir":   outputDir,
+					"last_message": lastMsg,
+				})
+			}
+		}()
 		runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
 			"bvid": bvid, "title": title, "status": "started", "output_dir": outputDir,
 		})
-		err := downloader.DownloadVideo(bvid, outputDir, a.cfg.FFmpegPath, pref, func(msg string) {
+		err := downloader.DownloadVideo(bvid, outputDir, a.cfg.FFmpegPath, expectedDurationSec, pref, func(msg string) {
 			lastMsg = msg
 			runtime.EventsEmit(a.ctx, "progress", map[string]interface{}{
 				"bvid": bvid, "message": msg,
@@ -327,6 +390,26 @@ func (a *App) DownloadVideo(bvid string, title string, pref downloader.DownloadP
 			})
 		}
 	}()
+}
+
+func parseClockDurationToSeconds(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty duration")
+	}
+	parts := strings.Split(s, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return 0, fmt.Errorf("invalid duration format: %s", s)
+	}
+	total := int64(0)
+	for _, p := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil {
+			return 0, fmt.Errorf("invalid duration token: %s", p)
+		}
+		total = total*60 + int64(n)
+	}
+	return total, nil
 }
 
 // --- 对话框 ---

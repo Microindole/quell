@@ -5,6 +5,9 @@ Object.assign(app, {
     async searchRemote() {
         const keyword = document.getElementById('searchInput').value.trim();
         if (!keyword) return;
+        this.state.selectedRemote.clear();
+        this.state.downloadQueue = [];
+        this.state.batchDownloading = false;
 
         document.getElementById('userResults').style.display = 'none';
         document.getElementById('videoListHeader').style.display = 'none';
@@ -43,14 +46,35 @@ Object.assign(app, {
         this.toast('正在获取视频列表...', 'info');
 
         try {
-            const data = await go.main.App.GetUserVideos(uid, page);
+            const data = await go.main.App.GetUserVideos(uid, page, this.state.remotePageSize);
             this.state.remoteVideos = data.videos || [];
+            this.state.remoteTotal = data.total || 0;
+            this.state.remoteTotalPages = data.total_pages || 0;
             document.getElementById('videoListHeader').style.display = 'flex';
-            document.getElementById('pageInfo').innerText = page;
+            this.updateRemotePager();
             this.renderRemoteList();
         } catch (e) {
             this.toast('获取视频列表失败: ' + e, 'error');
         }
+    },
+
+    updateRemotePager() {
+        const page = this.state.currentPage;
+        const totalPages = this.state.remoteTotalPages || 0;
+        const total = this.state.remoteTotal || 0;
+        document.getElementById('pageInfo').innerText = `第 ${page} / ${Math.max(totalPages, 1)} 页，共 ${total} 个`;
+
+        const prevDisabled = page <= 1;
+        const nextDisabled = totalPages > 0 ? page >= totalPages : false;
+        document.getElementById('btnFirstPage').disabled = prevDisabled;
+        document.getElementById('btnPrevPage').disabled = prevDisabled;
+        document.getElementById('btnNextPage').disabled = nextDisabled;
+        document.getElementById('btnLastPage').disabled = nextDisabled || totalPages === 0;
+
+        const jumpInput = document.getElementById('pageJumpInput');
+        if (jumpInput) jumpInput.value = page;
+        const selectedCountEl = document.getElementById('selectedCount');
+        if (selectedCountEl) selectedCountEl.innerText = `${this.state.selectedRemote.size}`;
     },
 
     prevPage() {
@@ -60,18 +84,65 @@ Object.assign(app, {
     },
 
     nextPage() {
-        if (this.state.currentUID) {
+        if (this.state.currentUID && (this.state.remoteTotalPages === 0 || this.state.currentPage < this.state.remoteTotalPages)) {
             this.fetchUserVideos(this.state.currentUID, this.state.currentPage + 1);
+        }
+    },
+
+    firstPage() {
+        if (this.state.currentUID && this.state.currentPage !== 1) {
+            this.fetchUserVideos(this.state.currentUID, 1);
+        }
+    },
+
+    lastPage() {
+        if (!this.state.currentUID || this.state.remoteTotalPages <= 0) return;
+        if (this.state.currentPage !== this.state.remoteTotalPages) {
+            this.fetchUserVideos(this.state.currentUID, this.state.remoteTotalPages);
+        }
+    },
+
+    jumpToPage() {
+        if (!this.state.currentUID) return;
+        const input = document.getElementById('pageJumpInput');
+        const target = Number(input.value || 0);
+        if (!Number.isInteger(target) || target <= 0) {
+            this.toast('请输入有效页码', 'error');
+            return;
+        }
+        const maxPage = this.state.remoteTotalPages || target;
+        const page = Math.min(target, maxPage);
+        this.fetchUserVideos(this.state.currentUID, page);
+    },
+
+    setPageSize() {
+        const sel = document.getElementById('pageSizeSelect');
+        const size = Number(sel.value || 30);
+        if (!Number.isInteger(size) || size <= 0) return;
+        this.state.remotePageSize = size;
+        if (this.state.currentUID) {
+            this.fetchUserVideos(this.state.currentUID, 1);
         }
     },
 
     renderRemoteList() {
         const container = document.getElementById('remoteVideoList');
+        if (this.state.remoteVideos.length === 0) {
+            container.innerHTML = '<div class="empty-state">当前页没有视频</div>';
+            this.updateRemotePager();
+            return;
+        }
+
         container.innerHTML = this.state.remoteVideos.map(v => {
             const isDownloading = this.state.downloadingParams.has(v.bvid);
+            const isSelected = this.state.selectedRemote.has(v.bvid);
             return `
             <div class="card">
                 <div style="position:relative;">
+                    <label class="remote-select">
+                        <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="app.toggleRemoteSelect(event, '${v.bvid}', '${v.title.replace(/'/g, "\\'").replace(/"/g, '&quot;')}', '${v.length || ''}')">
+                        <span>选择</span>
+                    </label>
                     <img class="card-img-top" src="${v.pic}" referrerpolicy="no-referrer">
                     <div style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.7); color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">${v.length}</div>
                 </div>
@@ -82,7 +153,7 @@ Object.assign(app, {
                     </div>
                     <div class="card-actions">
                         <button class="btn btn-primary btn-sm"
-                            onclick="app.triggerDownload('${v.bvid}', '${v.title.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')"
+                            onclick="app.triggerDownload('${v.bvid}', '${v.title.replace(/'/g, "\\'").replace(/"/g, '&quot;')}', '${v.length || ''}')"
                             ${isDownloading ? 'disabled' : ''}>
                             ${isDownloading ? '下载中...' : '下载'}
                         </button>
@@ -90,10 +161,75 @@ Object.assign(app, {
                 </div>
             </div>`;
         }).join('');
+        this.updateRemotePager();
+    },
+
+    toggleRemoteSelect(event, bvid, title, length) {
+        event.stopPropagation();
+        if (this.state.selectedRemote.has(bvid)) {
+            this.state.selectedRemote.delete(bvid);
+        } else {
+            this.state.selectedRemote.set(bvid, { title, length: length || '' });
+        }
+        this.updateRemotePager();
+    },
+
+    selectCurrentPage() {
+        this.state.remoteVideos.forEach(v => this.state.selectedRemote.set(v.bvid, { title: v.title, length: v.length || '' }));
+        this.renderRemoteList();
+    },
+
+    clearSelectedRemote() {
+        this.state.selectedRemote.clear();
+        this.renderRemoteList();
+    },
+
+    startBatchDownload() {
+        if (this.state.batchDownloading) {
+            this.toast('批量下载正在进行中', 'info');
+            return;
+        }
+        const queue = [...this.state.selectedRemote.entries()]
+            .filter(([bvid]) => !this.state.downloadingParams.has(bvid))
+            .map(([bvid, meta]) => ({ bvid, title: meta.title, length: meta.length || '' }));
+
+        if (queue.length === 0) {
+            this.toast('请先选择要下载的视频', 'error');
+            return;
+        }
+
+        this.state.downloadQueue = queue;
+        this.state.batchDownloading = true;
+        this.toast(`已加入队列 ${queue.length} 个，开始逐个下载`, 'success');
+        this.runNextInQueue();
+    },
+
+    runNextInQueue() {
+        if (!this.state.batchDownloading) return;
+        if (this.state.downloadQueue.length === 0) {
+            this.state.batchDownloading = false;
+            this.toast('批量下载队列已完成', 'success');
+            return;
+        }
+
+        const next = this.state.downloadQueue.shift();
+        this.state.downloadingParams.add(next.bvid);
+        this.renderRemoteList();
+        go.main.App.DownloadVideo(next.bvid, next.title, next.length || '', { quality_id: 0, codec: '' });
+    },
+
+    onRemoteDownloadFinished(bvid) {
+        if (this.state.selectedRemote.has(bvid)) {
+            this.state.selectedRemote.delete(bvid);
+        }
+        this.updateRemotePager();
+        if (this.state.batchDownloading) {
+            this.runNextInQueue();
+        }
     },
 
     // --- 下载入口（先获取分P信息） ---
-    async triggerDownload(bvid, title) {
+    async triggerDownload(bvid, title, length) {
         if (this.state.downloadingParams.has(bvid)) return;
 
         try {
@@ -102,16 +238,17 @@ Object.assign(app, {
                 this.toast('未获取到可下载分P', 'error');
                 return;
             }
-            this.showPageModal(bvid, title, info);
+            this.showPageModal(bvid, title, length || '', info);
         } catch (e) {
             this.toast('获取视频信息失败: ' + e, 'error');
         }
     },
 
     // --- 分P选择弹窗 ---
-    showPageModal(bvid, title, info) {
+    showPageModal(bvid, title, length, info) {
         this.state.pageSelectBvid = bvid;
         this.state.pageSelectTitle = title;
+        this.state.pageSelectLength = length || '';
         this.state.pageSelectPages = info.pages;
         this.state.pageStreamOptions = info.stream_options || [];
 
@@ -222,7 +359,7 @@ Object.assign(app, {
         };
 
         if (selected.length === pages.length) {
-            go.main.App.DownloadVideo(bvid, title, pref);
+            go.main.App.DownloadVideo(bvid, title, this.state.pageSelectLength || '', pref);
         } else {
             go.main.App.DownloadVideoPages(bvid, selected, title, pref);
         }

@@ -27,9 +27,10 @@ type viewResponse struct {
 			Name string `json:"name"`
 		} `json:"owner"`
 		Pages []struct {
-			Cid  int64  `json:"cid"`
-			Part string `json:"part"`
-			Page int    `json:"page"`
+			Cid      int64  `json:"cid"`
+			Part     string `json:"part"`
+			Page     int    `json:"page"`
+			Duration int64  `json:"duration"`
 		} `json:"pages"`
 	} `json:"data"`
 }
@@ -69,9 +70,10 @@ func GetVideoInfo(bvid string) (*VideoInfo, error) {
 
 	for _, p := range result.Data.Pages {
 		info.Pages = append(info.Pages, PageInfo{
-			Cid:  p.Cid,
-			Part: p.Part,
-			Page: p.Page,
+			Cid:      p.Cid,
+			Part:     p.Part,
+			Page:     p.Page,
+			Duration: p.Duration,
 		})
 	}
 
@@ -80,11 +82,21 @@ func GetVideoInfo(bvid string) (*VideoInfo, error) {
 
 // playURLResponse 对应 playurl 接口返回
 type playURLResponse struct {
-	Code int `json:"code"`
-	Data struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
 		AcceptQuality []int    `json:"accept_quality"`
 		AcceptDesc    []string `json:"accept_description"`
-		Dash          struct {
+		IsPreview     int      `json:"is_preview"`
+		Timelength    int64    `json:"timelength"`
+		Durl          []struct {
+			URL       string   `json:"url"`
+			Size      int64    `json:"size"`
+			Order     int      `json:"order"`
+			Length    int64    `json:"length"`
+			BackupURL []string `json:"backup_url"`
+		} `json:"durl"`
+		Dash struct {
 			Video []struct {
 				ID        int    `json:"id"`
 				BaseURL   string `json:"base_url"`
@@ -102,6 +114,22 @@ type playURLResponse struct {
 }
 
 func fetchPlayURL(aid, cid int64, qn int) (*playURLResponse, error) {
+	result, err := fetchPlayURLWithFnval(aid, cid, qn, "4048")
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Data.Dash.Video) > 0 {
+		return result, nil
+	}
+	// 回退：部分视频（如充电专属）不返回 DASH，只返回 durl 直链。
+	fallback, err := fetchPlayURLWithFnval(aid, cid, qn, "0")
+	if err != nil {
+		return nil, err
+	}
+	return fallback, nil
+}
+
+func fetchPlayURLWithFnval(aid, cid int64, qn int, fnval string) (*playURLResponse, error) {
 	imgKey, subKey, err := crawler.GetWbiKeys()
 	if err != nil {
 		return nil, fmt.Errorf("获取 Wbi 签名密钥失败: %w", err)
@@ -115,7 +143,7 @@ func fetchPlayURL(aid, cid int64, qn int) (*playURLResponse, error) {
 	params := map[string]string{
 		"avid":  strconv.FormatInt(aid, 10),
 		"cid":   strconv.FormatInt(cid, 10),
-		"fnval": "4048", // 请求 DASH 格式
+		"fnval": fnval,
 		"fnver": "0",
 		"fourk": "1",
 		"qn":    qnVal,
@@ -141,7 +169,7 @@ func fetchPlayURL(aid, cid int64, qn int) (*playURLResponse, error) {
 	}
 
 	if result.Code != 0 {
-		return nil, fmt.Errorf("playurl API 错误 (code=%d)", result.Code)
+		return nil, fmt.Errorf("playurl API 错误 (code=%d, msg=%s)", result.Code, result.Message)
 	}
 
 	return &result, nil
@@ -171,6 +199,60 @@ func mapAudioStreams(result *playURLResponse) []DashStream {
 		})
 	}
 	return streams
+}
+
+func mapDurlVideo(result *playURLResponse) *DashStream {
+	if len(result.Data.Durl) == 0 {
+		return nil
+	}
+	first := result.Data.Durl[0]
+	if first.URL == "" {
+		return nil
+	}
+	qid := 0
+	if len(result.Data.AcceptQuality) > 0 {
+		qid = result.Data.AcceptQuality[0]
+	}
+	return &DashStream{
+		ID:        qid,
+		BaseURL:   first.URL,
+		Bandwidth: first.Size,
+		Codecs:    "mixed",
+	}
+}
+
+func inferTrialSeconds(result *playURLResponse) int64 {
+	if len(result.Data.Durl) == 0 {
+		return 0
+	}
+	length := result.Data.Durl[0].Length
+	if length <= 0 {
+		return 0
+	}
+	// durl length 通常为毫秒
+	return length / 1000
+}
+
+func inferPlayableMs(result *playURLResponse) int64 {
+	if result.Data.Timelength > 0 {
+		return result.Data.Timelength
+	}
+	if len(result.Data.Durl) > 0 && result.Data.Durl[0].Length > 0 {
+		return result.Data.Durl[0].Length
+	}
+	return 0
+}
+
+func buildDebugSummary(result *playURLResponse, mode string) string {
+	return fmt.Sprintf(
+		"mode=%s, is_preview=%d, timelength_ms=%d, dash_v=%d, dash_a=%d, durl=%d",
+		mode,
+		result.Data.IsPreview,
+		result.Data.Timelength,
+		len(result.Data.Dash.Video),
+		len(result.Data.Dash.Audio),
+		len(result.Data.Durl),
+	)
 }
 
 func normalizeCodec(codec string) string {
@@ -280,7 +362,22 @@ func ListVideoStreamMetas(aid, cid int64) ([]StreamMeta, error) {
 
 	videoStreams := mapVideoStreams(result)
 	if len(videoStreams) == 0 {
-		return nil, fmt.Errorf("未找到可用的视频流")
+		if durl := mapDurlVideo(result); durl != nil {
+			label := "兼容直链"
+			if durl.ID > 0 {
+				label = qualityLabel(durl.ID) + "（兼容直链）"
+			}
+			return []StreamMeta{
+				{
+					QualityID:    durl.ID,
+					QualityLabel: label,
+					Codec:        "mixed",
+					CodecLabel:   "音视频直链",
+					Bandwidth:    durl.Bandwidth,
+				},
+			}, nil
+		}
+		return nil, fmt.Errorf("未找到可用的视频流（可能是权限受限/充电专属，或当前账号无播放权限）")
 	}
 
 	metaByKey := map[string]StreamMeta{}
@@ -385,24 +482,73 @@ func selectVideoStream(videoStreams []DashStream, pref DownloadPreference) *Dash
 }
 
 // GetPlayURL 获取 DASH 格式的音视频流地址，并按偏好选择视频流。
-func GetPlayURL(aid, cid int64, pref DownloadPreference) (video *DashStream, audio *DashStream, err error) {
+func GetPlayURL(aid, cid int64, expectedDurationSec int64, pref DownloadPreference) (*PlayURLSelection, error) {
 	result, err := fetchPlayURL(aid, cid, pref.QualityID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	videoStreams := mapVideoStreams(result)
 	audioStreams := mapAudioStreams(result)
+	mode := "dash"
+	if len(videoStreams) == 0 && len(result.Data.Durl) > 0 {
+		mode = "durl"
+	}
+
+	isPreview := result.Data.IsPreview == 1
+	trialSeconds := inferTrialSeconds(result)
+	if isPreview {
+		return nil, fmt.Errorf("当前视频仅返回试看流，无法下载完整内容（%s, 试看时长约 %d 秒）", buildDebugSummary(result, mode), trialSeconds)
+	}
+	// 兜底校验：部分充电/权限场景 is_preview=0，但返回的可播时长明显短于分P标称时长。
+	// 允许 5 秒误差，避免因片头片尾裁切导致误判。
+	if expectedDurationSec > 0 {
+		expectedMs := expectedDurationSec * 1000
+		playableMs := inferPlayableMs(result)
+		if playableMs > 0 && playableMs+5000 < expectedMs {
+			return nil, fmt.Errorf(
+				"当前视频疑似仅返回试看流，无法下载完整内容（%s, 返回时长约 %d 秒，标称时长约 %d 秒）",
+				buildDebugSummary(result, mode),
+				playableMs/1000,
+				expectedDurationSec,
+			)
+		}
+	}
 
 	bestVideo := selectVideoStream(videoStreams, pref)
 	bestAudio := pickBestAudio(audioStreams)
 
 	if bestVideo == nil {
-		return nil, nil, fmt.Errorf("未找到可用的视频流")
+		if durl := mapDurlVideo(result); durl != nil {
+			return &PlayURLSelection{
+				Video:        durl,
+				Audio:        nil,
+				Mode:         "durl",
+				IsPreview:    false,
+				TrialSeconds: 0,
+				Debug:        buildDebugSummary(result, "durl"),
+			}, nil
+		}
+		return nil, fmt.Errorf("未找到可用的视频流（%s）", buildDebugSummary(result, mode))
 	}
 	if bestAudio == nil {
-		return nil, nil, fmt.Errorf("未找到可用的音频流")
+		// 允许无独立音轨：后续走直链下载，不做 ffmpeg 合并。
+		return &PlayURLSelection{
+			Video:        bestVideo,
+			Audio:        nil,
+			Mode:         mode,
+			IsPreview:    false,
+			TrialSeconds: 0,
+			Debug:        buildDebugSummary(result, mode),
+		}, nil
 	}
 
-	return bestVideo, bestAudio, nil
+	return &PlayURLSelection{
+		Video:        bestVideo,
+		Audio:        bestAudio,
+		Mode:         "dash",
+		IsPreview:    false,
+		TrialSeconds: 0,
+		Debug:        buildDebugSummary(result, "dash"),
+	}, nil
 }

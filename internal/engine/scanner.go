@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"quell/internal/domain"
+	"strings"
 )
 
 // Scan 递归遍历 BiliDir 下的目录，寻找包含视频元数据的文件夹
@@ -84,4 +85,42 @@ func hasM4S(dir string) bool {
 		}
 	}
 	return false
+}
+
+// ScanOutputOnlyVideos 扫描输出目录中的视频文件，返回“无本地缓存来源”的任务候选。
+func ScanOutputOnlyVideos(outputDir string) ([]domain.VideoTask, error) {
+	if outputDir == "" {
+		return nil, nil
+	}
+
+	var tasks []domain.VideoTask
+	err := filepath.WalkDir(outputDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+		if ext != ".mp4" && ext != ".mkv" {
+			return nil
+		}
+
+		title := strings.TrimSuffix(d.Name(), ext)
+		tasks = append(tasks, domain.VideoTask{
+			Dir:        filepath.Dir(path),
+			FolderName: d.Name(),
+			Status:     "完成",
+			OutputPath: path,
+			Info: domain.BiliVideoInfo{
+				Title:      title,
+				GroupTitle: title,
+				Status:     "remote_without_cache",
+			},
+		})
+		return nil
+	})
+
+	return tasks, err
 }

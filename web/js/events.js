@@ -35,6 +35,8 @@ Object.assign(app, {
             } else if (data.status === 'done') {
                 this.toast('批量合并完成', 'success');
                 this.scanLocal(); // 刷新列表
+            } else if (data.status === 'rescan_error') {
+                this.toast(`批量合并后刷新失败: ${data.error}`, 'error');
             }
         });
 
@@ -53,6 +55,7 @@ Object.assign(app, {
                 this.log(`[SUCCESS] 下载完成: ${data.bvid}，保存目录: ${dir}${tail}`);
                 this.state.downloadingParams.delete(data.bvid);
                 this.renderRemoteList();
+                this.onRemoteDownloadFinished(data.bvid);
             } else if (data.status === 'error') {
                 const dir = data.output_dir || '(未配置)';
                 const tail = data.last_message ? `，最后状态: ${data.last_message}` : '';
@@ -60,6 +63,7 @@ Object.assign(app, {
                 this.log(`[ERROR] 下载失败: ${data.bvid}，目录: ${dir}，错误: ${data.error}${tail}`);
                 this.state.downloadingParams.delete(data.bvid);
                 this.renderRemoteList();
+                this.onRemoteDownloadFinished(data.bvid);
             }
         });
 

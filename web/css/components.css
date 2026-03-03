@@ -153,6 +153,51 @@ input[type="password"]:focus {
 
 .search-bar input { flex: 1; }
 
+.remote-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.remote-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.remote-toolbar select {
+    width: auto;
+    min-width: 64px;
+    padding: 4px 8px;
+    margin: 0;
+}
+
+.remote-page-jump {
+    width: 56px !important;
+    padding: 4px 8px !important;
+}
+
+.remote-select {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 6px;
+    padding: 3px 6px;
+}
+
+.remote-select input {
+    width: auto;
+    margin: 0;
+}
+
 /* ===== Toast 通知 ===== */
 .toast-container {
     position: fixed;

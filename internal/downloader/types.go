@@ -2,9 +2,10 @@ package downloader
 
 // PageInfo 单个分P信息
 type PageInfo struct {
-	Cid  int64  `json:"cid"`
-	Part string `json:"part"`
-	Page int    `json:"page"`
+	Cid      int64  `json:"cid"`
+	Part     string `json:"part"`
+	Page     int    `json:"page"`
+	Duration int64  `json:"duration"` // 单位：秒
 }
 
 // VideoInfo 视频基本信息
@@ -24,6 +25,16 @@ type DashStream struct {
 	BaseURL   string // 下载地址
 	Bandwidth int64  // 码率
 	Codecs    string // 编码格式
+}
+
+// PlayURLSelection 是一次播放地址选择结果，包含流模式与权限信息。
+type PlayURLSelection struct {
+	Video        *DashStream
+	Audio        *DashStream
+	Mode         string // dash / durl
+	IsPreview    bool
+	TrialSeconds int64
+	Debug        string
 }
 
 // StreamMeta 提供给前端展示用的流元信息

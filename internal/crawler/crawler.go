@@ -154,16 +154,19 @@ func resetWbiCache() {
 	cacheMutex.Unlock()
 }
 
-func getUserVideosOnce(mid string, pn int, withSess bool) ([]BiliVideoMeta, int, int, string, error) {
+func getUserVideosOnce(mid string, pn int, ps int, withSess bool) ([]BiliVideoMeta, int, int, string, error) {
 	imgKey, subKey, err := GetWbiKeys()
 	if err != nil {
 		return nil, 0, 0, "", fmt.Errorf("failed to get wbi keys: %w", err)
+	}
+	if ps <= 0 {
+		ps = 30
 	}
 
 	// 参考 BBDown：该接口只保留最小必要参数，避免无效指纹字段触发风控。
 	params := map[string]string{
 		"mid":   mid,
-		"ps":    "30",
+		"ps":    strconv.Itoa(ps),
 		"tid":   "0",
 		"order": "pubdate",
 		"pn":    strconv.Itoa(pn),
@@ -204,8 +207,8 @@ func getUserVideosOnce(mid string, pn int, withSess bool) ([]BiliVideoMeta, int,
 	return result.Data.List.Vlist, result.Data.Page.Xcount, result.Code, result.Message, nil
 }
 
-func GetUserVideos(mid string, pn int) ([]BiliVideoMeta, int, error) {
-	videos, total, code, msg, err := getUserVideosOnce(mid, pn, true)
+func GetUserVideos(mid string, pn int, ps int) ([]BiliVideoMeta, int, error) {
+	videos, total, code, msg, err := getUserVideosOnce(mid, pn, ps, true)
 	if err == nil && code == 0 {
 		return videos, total, nil
 	}
@@ -216,7 +219,7 @@ func GetUserVideos(mid string, pn int) ([]BiliVideoMeta, int, error) {
 	if code == -352 {
 		// 风控时刷新 wbi key，并去掉 SESSDATA 重试一次，规避异常 cookie 状态导致的拦截。
 		resetWbiCache()
-		videos2, total2, code2, msg2, err2 := getUserVideosOnce(mid, pn, false)
+		videos2, total2, code2, msg2, err2 := getUserVideosOnce(mid, pn, ps, false)
 		if err2 == nil && code2 == 0 {
 			return videos2, total2, nil
 		}

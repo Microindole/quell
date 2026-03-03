@@ -127,11 +127,24 @@
 
                 <div id="videoResults" class="video-results">
                     <div class="list-header" id="videoListHeader" style="display:none; align-items:center; justify-content:space-between; margin-bottom:16px;">
-                        <h3 style="font-weight:600; font-size:16px;">视频列表</h3>
-                        <div style="display:flex; gap:8px; align-items:center;">
-                            <button class="btn btn-standard btn-sm" onclick="app.prevPage()">&lt;</button>
-                            <span id="pageInfo" style="font-size:12px; color:var(--text-secondary);">1</span>
-                            <button class="btn btn-standard btn-sm" onclick="app.nextPage()">&gt;</button>
+                        <h3 style="font-weight:600; font-size:16px;">视频列表（可多选队列下载）</h3>
+                        <div class="remote-toolbar">
+                            <label class="remote-label">每页</label>
+                            <select id="pageSizeSelect" onchange="app.setPageSize()">
+                                <option value="20">20</option>
+                                <option value="30" selected>30</option>
+                                <option value="50">50</option>
+                            </select>
+                            <button id="btnFirstPage" class="btn btn-standard btn-sm" onclick="app.firstPage()">首页</button>
+                            <button id="btnPrevPage" class="btn btn-standard btn-sm" onclick="app.prevPage()">&lt;</button>
+                            <span id="pageInfo" style="font-size:12px; color:var(--text-secondary);">第 1 / 1 页，共 0 个</span>
+                            <button id="btnNextPage" class="btn btn-standard btn-sm" onclick="app.nextPage()">&gt;</button>
+                            <button id="btnLastPage" class="btn btn-standard btn-sm" onclick="app.lastPage()">尾页</button>
+                            <input id="pageJumpInput" type="text" value="1" class="remote-page-jump" onkeypress="if(event.key==='Enter') app.jumpToPage()">
+                            <button class="btn btn-standard btn-sm" onclick="app.jumpToPage()">跳转</button>
+                            <button class="btn btn-standard btn-sm" onclick="app.selectCurrentPage()">全选本页</button>
+                            <button class="btn btn-standard btn-sm" onclick="app.clearSelectedRemote()">清空选择</button>
+                            <button class="btn btn-primary btn-sm" onclick="app.startBatchDownload()">批量下载(<span id="selectedCount">0</span>)</button>
                         </div>
                     </div>
                     <div class="card-grid" id="remoteVideoList"></div>
