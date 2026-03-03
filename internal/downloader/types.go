@@ -26,6 +26,21 @@ type DashStream struct {
 	Codecs    string // 编码格式
 }
 
+// StreamMeta 提供给前端展示用的流元信息
+type StreamMeta struct {
+	QualityID    int    `json:"quality_id"`
+	QualityLabel string `json:"quality_label"`
+	Codec        string `json:"codec"`
+	CodecLabel   string `json:"codec_label"`
+	Bandwidth    int64  `json:"bandwidth"`
+}
+
+// DownloadPreference 下载偏好（画质与编码）
+type DownloadPreference struct {
+	QualityID int    `json:"quality_id"`
+	Codec     string `json:"codec"`
+}
+
 // ProgressInfo 包含详细的下载进度信息
 type ProgressInfo struct {
 	Downloaded int64

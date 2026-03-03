@@ -20,7 +20,15 @@ const app = {
         currentPage: 1,
         pageSelectBvid: '',
         pageSelectTitle: '',
-        pageSelectPages: []
+        pageSelectPages: [],
+        pageStreamOptions: [],
+        downloadPref: {
+            quality_id: 0,
+            codec: ''
+        },
+        loginPollingTimer: null,
+        loginQrcodeKey: '',
+        loginURL: ''
     },
 
     init() {

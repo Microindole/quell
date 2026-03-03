@@ -46,5 +46,83 @@ Object.assign(app, {
         } catch (e) {
             this.toast('保存配置失败: ' + e, 'error');
         }
+    },
+
+    async startBiliLogin() {
+        const modal = document.getElementById('biliLoginModal');
+        const statusEl = document.getElementById('biliLoginStatus');
+        const urlEl = document.getElementById('biliLoginURL');
+        const qrEl = document.getElementById('biliLoginQrImage');
+        statusEl.innerText = '正在初始化登录会话...';
+        urlEl.value = '';
+        qrEl.removeAttribute('src');
+        modal.style.display = 'flex';
+
+        try {
+            const data = await go.main.App.StartBiliLogin();
+            this.state.loginQrcodeKey = data.qrcode_key;
+            this.state.loginURL = data.url;
+            urlEl.value = data.url || '';
+            qrEl.src = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(data.url || '')}`;
+            statusEl.innerText = '请用手机 B站 App 扫码并确认登录。';
+            this.startLoginPolling();
+        } catch (e) {
+            statusEl.innerText = '初始化失败: ' + e;
+            this.toast('登录初始化失败: ' + e, 'error');
+        }
+    },
+
+    openLoginBrowser() {
+        if (this.state.loginURL) {
+            go.main.App.OpenBrowserURL(this.state.loginURL);
+        }
+    },
+
+    closeBiliLoginModal() {
+        const modal = document.getElementById('biliLoginModal');
+        if (modal) modal.style.display = 'none';
+        const qrEl = document.getElementById('biliLoginQrImage');
+        if (qrEl) qrEl.removeAttribute('src');
+        if (this.state.loginPollingTimer) {
+            clearInterval(this.state.loginPollingTimer);
+            this.state.loginPollingTimer = null;
+        }
+        this.state.loginQrcodeKey = '';
+        this.state.loginURL = '';
+    },
+
+    startLoginPolling() {
+        if (this.state.loginPollingTimer) {
+            clearInterval(this.state.loginPollingTimer);
+        }
+
+        this.state.loginPollingTimer = setInterval(async () => {
+            const key = this.state.loginQrcodeKey;
+            if (!key) return;
+
+            try {
+                const res = await go.main.App.PollBiliLogin(key);
+                const statusEl = document.getElementById('biliLoginStatus');
+                if (statusEl) statusEl.innerText = res.message || '登录处理中...';
+
+                if (res.status === 'success') {
+                    clearInterval(this.state.loginPollingTimer);
+                    this.state.loginPollingTimer = null;
+                    await this.loadConfig();
+                    this.toast('B站登录成功，SESSDATA 已自动保存', 'success');
+                    this.closeBiliLoginModal();
+                } else if (res.status === 'expired') {
+                    clearInterval(this.state.loginPollingTimer);
+                    this.state.loginPollingTimer = null;
+                    this.toast('二维码已过期，请重新发起登录', 'error');
+                }
+            } catch (e) {
+                clearInterval(this.state.loginPollingTimer);
+                this.state.loginPollingTimer = null;
+                const statusEl = document.getElementById('biliLoginStatus');
+                if (statusEl) statusEl.innerText = '登录轮询失败: ' + e;
+                this.toast('登录轮询失败: ' + e, 'error');
+            }
+        }, 1200);
     }
 });

@@ -72,8 +72,8 @@ func fetchBuvid() (string, string) {
 		rand.Read(b)
 		b[6] = (b[6] & 0x0f) | 0x40
 		b[8] = (b[8] & 0x3f) | 0x80
-		cachedBuvid3 = fmt.Sprintf("%08X-%04X-%04X-%04X-%012X",
-			b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]) + "infoc"
+		cachedBuvid3 = strings.ToUpper(fmt.Sprintf("%x-%x-%x-%x-%x",
+			b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])) + "infoc"
 		buvidFetched = true
 	}
 
@@ -82,14 +82,20 @@ func fetchBuvid() (string, string) {
 
 // addCommonHeaders 为请求添加通用 Headers 和 Cookie
 func addCommonHeaders(req *http.Request) {
+	addCommonHeadersWithSess(req, true)
+}
+
+func addCommonHeadersWithSess(req *http.Request, withSess bool) {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Referer", "https://www.bilibili.com")
 	buvid3, buvid4 := fetchBuvid()
 	cookie := "buvid3=" + buvid3
 	if buvid4 != "" {
 		cookie += "; buvid4=" + buvid4
 	}
-	if sessdata != "" {
+	if withSess && sessdata != "" {
 		cookie += "; SESSDATA=" + sessdata
 	}
 	req.Header.Set("Cookie", cookie)
@@ -138,59 +144,87 @@ type arcSearchResponse struct {
 	} `json:"data"`
 }
 
-func GetUserVideos(mid string, pn int) ([]BiliVideoMeta, int, error) {
+func resetWbiCache() {
+	cacheMutex.Lock()
+	cachedImgKey = ""
+	cachedSubKey = ""
+	cacheTime = time.Time{}
+	cacheMutex.Unlock()
+}
+
+func getUserVideosOnce(mid string, pn int, withSess bool) ([]BiliVideoMeta, int, int, string, error) {
 	imgKey, subKey, err := GetWbiKeys()
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get wbi keys: %w", err)
+		return nil, 0, 0, "", fmt.Errorf("failed to get wbi keys: %w", err)
 	}
 
+	// 参考 BBDown：该接口只保留最小必要参数，避免无效指纹字段触发风控。
 	params := map[string]string{
-		"mid":              mid,
-		"ps":               "30", // 每页 30 个
-		"tid":              "0",
-		"keyword":          "",
-		"order":            "pubdate",
-		"platform":         "web",
-		"web_location":     "1550101",
-		"dm_img_list":      "[]",
-		"dm_img_str":       "V2ViR2wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ",
-		"dm_cover_img_str": "QU5HTEUgKEludGVsLCBJbnRlbChSKSBVSEQgR3JhcGhpY3MgNzcwICgweDAwMDBBNzgwKSwgRC1DMy0xMS0tMTA7IDMyLjAuMTAxLjU5NzIp",
-		"pn":               strconv.Itoa(pn),
+		"mid":   mid,
+		"ps":    "30",
+		"tid":   "0",
+		"order": "pubdate",
+		"pn":    strconv.Itoa(pn),
 	}
 
 	signedParams := SignAndEncode(params, imgKey, subKey)
 	apiURL := "https://api.bilibili.com/x/space/wbi/arc/search?" + signedParams
 
 	req, _ := http.NewRequest("GET", apiURL, nil)
-	addCommonHeaders(req)
+	addCommonHeadersWithSess(req, withSess)
 	req.Header.Set("Referer", "https://space.bilibili.com/"+mid)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, 0, fmt.Errorf("status code %d", resp.StatusCode)
+		return nil, 0, 0, "", fmt.Errorf("status code %d", resp.StatusCode)
 	}
 
 	body, _ := io.ReadAll(resp.Body)
 	var result arcSearchResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, 0, fmt.Errorf("解析响应失败: %w (原始响应: %.200s)", err, string(body))
+		return nil, 0, 0, "", fmt.Errorf("解析响应失败: %w (原始响应: %.200s)", err, string(body))
 	}
 
 	if result.Code != 0 {
-		return nil, 0, fmt.Errorf("B站 API 错误 (code=%d): %s", result.Code, result.Message)
+		return nil, 0, result.Code, result.Message, nil
 	}
 
 	if len(result.Data.List.Vlist) == 0 {
-		return nil, 0, fmt.Errorf("该用户 (mid=%s) 没有公开视频，或被 B 站风控拦截 (原始响应: %.300s)", mid, string(body))
+		return nil, 0, result.Code, result.Message, fmt.Errorf("该用户 (mid=%s) 没有公开视频，或被 B 站风控拦截 (原始响应: %.300s)", mid, string(body))
 	}
 
-	return result.Data.List.Vlist, result.Data.Page.Xcount, nil
+	return result.Data.List.Vlist, result.Data.Page.Xcount, result.Code, result.Message, nil
+}
+
+func GetUserVideos(mid string, pn int) ([]BiliVideoMeta, int, error) {
+	videos, total, code, msg, err := getUserVideosOnce(mid, pn, true)
+	if err == nil && code == 0 {
+		return videos, total, nil
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if code == -352 {
+		// 风控时刷新 wbi key，并去掉 SESSDATA 重试一次，规避异常 cookie 状态导致的拦截。
+		resetWbiCache()
+		videos2, total2, code2, msg2, err2 := getUserVideosOnce(mid, pn, false)
+		if err2 == nil && code2 == 0 {
+			return videos2, total2, nil
+		}
+		if err2 != nil {
+			return nil, 0, err2
+		}
+		return nil, 0, fmt.Errorf("B站 API 错误 (code=%d): %s（已重试一次）", code2, msg2)
+	}
+
+	return nil, 0, fmt.Errorf("B站 API 错误 (code=%d): %s", code, msg)
 }
 
 // BiliUserMeta 搜索到的用户信息
@@ -204,8 +238,9 @@ type BiliUserMeta struct {
 }
 
 type searchUserResponse struct {
-	Code int `json:"code"`
-	Data struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
 		Result []struct {
 			Mid   int    `json:"mid"`
 			Uname string `json:"uname"`
@@ -256,6 +291,9 @@ func SearchUsers(keyword string) ([]BiliUserMeta, error) {
 	var result searchUserResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
+	}
+	if result.Code != 0 {
+		return nil, fmt.Errorf("B站 API 错误 (code=%d): %s", result.Code, result.Message)
 	}
 
 	// 转换结构

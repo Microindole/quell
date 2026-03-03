@@ -25,6 +25,23 @@ type App struct {
 	tasks []domain.VideoTask
 }
 
+type LoginStartResult struct {
+	URL       string `json:"url"`
+	QrcodeKey string `json:"qrcode_key"`
+}
+
+type LoginPollResult struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+func (a *App) remoteOutputDir() string {
+	if a.cfg.OutputDir != "" {
+		return a.cfg.OutputDir
+	}
+	return a.cfg.BiliDir
+}
+
 // NewApp 创建 App 实例
 func NewApp() *App {
 	cfg, err := config.Load()
@@ -67,6 +84,38 @@ func (a *App) SaveConfig(cfg config.Config) error {
 		downloader.SetSessdata(cfg.SESSDATA)
 	}
 	return nil
+}
+
+// --- 登录 ---
+
+func (a *App) StartBiliLogin() (*LoginStartResult, error) {
+	loginURL, qrcodeKey, err := crawler.GenerateWebLoginQRCode()
+	if err != nil {
+		return nil, err
+	}
+	return &LoginStartResult{
+		URL:       loginURL,
+		QrcodeKey: qrcodeKey,
+	}, nil
+}
+
+func (a *App) PollBiliLogin(qrcodeKey string) (*LoginPollResult, error) {
+	status, message, sess, err := crawler.PollWebLoginStatus(qrcodeKey)
+	if err != nil {
+		return nil, err
+	}
+	if status == "success" && sess != "" {
+		a.cfg.SESSDATA = sess
+		if err := config.Save(a.cfg); err != nil {
+			return nil, fmt.Errorf("登录成功但保存配置失败: %w", err)
+		}
+		crawler.SetSessdata(sess)
+		downloader.SetSessdata(sess)
+	}
+	return &LoginPollResult{
+		Status:  status,
+		Message: message,
+	}, nil
 }
 
 // --- 本地扫描 ---
@@ -199,8 +248,9 @@ func (a *App) GetUserVideos(uid string, page int) (*VideoListResult, error) {
 
 // VideoPageResult 分P查询结果
 type VideoPageResult struct {
-	Title string                `json:"title"`
-	Pages []downloader.PageInfo `json:"pages"`
+	Title         string                  `json:"title"`
+	Pages         []downloader.PageInfo   `json:"pages"`
+	StreamOptions []downloader.StreamMeta `json:"stream_options"`
 }
 
 // GetVideoPages 获取视频分P列表，用于下载前的分P选择
@@ -209,54 +259,66 @@ func (a *App) GetVideoPages(bvid string) (*VideoPageResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("获取视频信息失败: %w", err)
 	}
+
+	streamOptions, err := downloader.ListVideoStreamMetas(info.Aid, info.Cid)
+	if err != nil {
+		return nil, fmt.Errorf("获取可选画质失败: %w", err)
+	}
 	return &VideoPageResult{
-		Title: info.Title,
-		Pages: info.Pages,
+		Title:         info.Title,
+		Pages:         info.Pages,
+		StreamOptions: streamOptions,
 	}, nil
 }
 
 // --- 远程：下载视频 ---
 
 // DownloadVideoPages 下载用户选择的指定分P
-func (a *App) DownloadVideoPages(bvid string, pages []downloader.PageInfo, title string) {
+func (a *App) DownloadVideoPages(bvid string, pages []downloader.PageInfo, title string, pref downloader.DownloadPreference) {
 	go func() {
+		lastMsg := ""
+		outputDir := a.remoteOutputDir()
 		runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
-			"bvid": bvid, "title": title, "status": "started",
+			"bvid": bvid, "title": title, "status": "started", "output_dir": outputDir,
 		})
-		err := downloader.DownloadPages(bvid, pages, a.cfg.BiliDir, a.cfg.FFmpegPath, func(msg string) {
+		err := downloader.DownloadPages(bvid, pages, outputDir, a.cfg.FFmpegPath, pref, func(msg string) {
+			lastMsg = msg
 			runtime.EventsEmit(a.ctx, "progress", map[string]interface{}{
 				"bvid": bvid, "message": msg,
 			})
 		})
 		if err != nil {
 			runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
-				"bvid": bvid, "status": "error", "error": err.Error(),
+				"bvid": bvid, "status": "error", "error": err.Error(), "output_dir": outputDir, "last_message": lastMsg,
 			})
 		} else {
 			runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
-				"bvid": bvid, "status": "done",
+				"bvid": bvid, "status": "done", "output_dir": outputDir, "last_message": lastMsg,
 			})
 		}
 	}()
 }
 
-func (a *App) DownloadVideo(bvid string, title string) {
+func (a *App) DownloadVideo(bvid string, title string, pref downloader.DownloadPreference) {
 	go func() {
+		lastMsg := ""
+		outputDir := a.remoteOutputDir()
 		runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
-			"bvid": bvid, "title": title, "status": "started",
+			"bvid": bvid, "title": title, "status": "started", "output_dir": outputDir,
 		})
-		err := downloader.DownloadVideo(bvid, a.cfg.BiliDir, a.cfg.FFmpegPath, func(msg string) {
+		err := downloader.DownloadVideo(bvid, outputDir, a.cfg.FFmpegPath, pref, func(msg string) {
+			lastMsg = msg
 			runtime.EventsEmit(a.ctx, "progress", map[string]interface{}{
 				"bvid": bvid, "message": msg,
 			})
 		})
 		if err != nil {
 			runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
-				"bvid": bvid, "status": "error", "error": err.Error(),
+				"bvid": bvid, "status": "error", "error": err.Error(), "output_dir": outputDir, "last_message": lastMsg,
 			})
 		} else {
 			runtime.EventsEmit(a.ctx, "download", map[string]interface{}{
-				"bvid": bvid, "status": "done",
+				"bvid": bvid, "status": "done", "output_dir": outputDir, "last_message": lastMsg,
 			})
 		}
 	}()
@@ -308,6 +370,10 @@ func (a *App) OpenFile(path string) error {
 	// 这里使用 cmd /c start 以使用默认程序打开
 	cmd := exec.Command("cmd", "/c", "start", "", path)
 	return cmd.Start()
+}
+
+func (a *App) OpenBrowserURL(rawURL string) {
+	runtime.BrowserOpenURL(a.ctx, rawURL)
 }
 
 // --- 窗口控制 ---

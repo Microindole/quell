@@ -35,7 +35,7 @@ type downloadProgressMsg struct {
 
 func downloadCmd(bvid, workDir, ffmpegPath string, progressChan chan downloadProgressMsg) tea.Cmd {
 	return func() tea.Msg {
-		err := downloader.DownloadVideo(bvid, workDir, ffmpegPath, func(msg string) {
+		err := downloader.DownloadVideo(bvid, workDir, ffmpegPath, downloader.DownloadPreference{}, func(msg string) {
 			if progressChan != nil {
 				progressChan <- downloadProgressMsg{Bvid: bvid, Message: msg}
 			}

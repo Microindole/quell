@@ -43,12 +43,21 @@ Object.assign(app, {
         });
 
         window.runtime.EventsOn('download', (data) => {
-            if (data.status === 'done') {
+            if (data.status === 'started') {
+                const dir = data.output_dir || '(未配置)';
+                this.log(`[INFO] 开始下载: ${data.bvid}，保存目录: ${dir}`);
+            } else if (data.status === 'done') {
+                const dir = data.output_dir || '(未配置)';
+                const tail = data.last_message ? `，最后状态: ${data.last_message}` : '';
                 this.toast(`下载完成: ${data.bvid}`, 'success');
+                this.log(`[SUCCESS] 下载完成: ${data.bvid}，保存目录: ${dir}${tail}`);
                 this.state.downloadingParams.delete(data.bvid);
                 this.renderRemoteList();
             } else if (data.status === 'error') {
+                const dir = data.output_dir || '(未配置)';
+                const tail = data.last_message ? `，最后状态: ${data.last_message}` : '';
                 this.toast(`下载失败 [${data.bvid}]: ${data.error}`, 'error');
+                this.log(`[ERROR] 下载失败: ${data.bvid}，目录: ${dir}，错误: ${data.error}${tail}`);
                 this.state.downloadingParams.delete(data.bvid);
                 this.renderRemoteList();
             }

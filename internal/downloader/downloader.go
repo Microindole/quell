@@ -271,10 +271,10 @@ func downloadSingle(url, savePath string, onProgress func(ProgressInfo)) error {
 // --- 4. 高层封装 ---
 
 // downloadSinglePage 下载单个分P的音视频并合并
-func downloadSinglePage(info *VideoInfo, page PageInfo, outputDir, ffmpegPath, filePrefix string, onStatus func(msg string)) error {
+func downloadSinglePage(info *VideoInfo, page PageInfo, outputDir, ffmpegPath, filePrefix, coverPath string, pref DownloadPreference, onStatus func(msg string)) error {
 	// 获取播放地址
 	onStatus(fmt.Sprintf("正在获取 P%d 播放地址...", page.Page))
-	videoStream, audioStream, err := GetPlayURL(info.Aid, page.Cid)
+	videoStream, audioStream, err := GetPlayURL(info.Aid, page.Cid, pref)
 	if err != nil {
 		return fmt.Errorf("获取 P%d 播放地址失败: %w", page.Page, err)
 	}
@@ -316,28 +316,52 @@ func downloadSinglePage(info *VideoInfo, page PageInfo, outputDir, ffmpegPath, f
 		ffmpegCmd = ffmpegPath
 	}
 
-	cmd := exec.Command(ffmpegCmd,
-		"-i", videoTmp,
-		"-i", audioTmp,
-		"-c", "copy",
-		"-y",
-		"-loglevel", "error",
-		finalOutput,
-	)
-
-	output, err := cmd.CombinedOutput()
+	var output []byte
+	var mergeErr error
+	if coverPath != "" {
+		// 优先尝试写入封面元数据，失败后再回退到普通合并，避免任务整体失败。
+		onStatus(fmt.Sprintf("P%d 正在写入封面...", page.Page))
+		cmdWithCover := exec.Command(ffmpegCmd,
+			"-i", videoTmp,
+			"-i", audioTmp,
+			"-i", coverPath,
+			"-map", "0:v:0",
+			"-map", "1:a:0",
+			"-map", "2:v:0",
+			"-c", "copy",
+			"-c:v:1", "mjpeg",
+			"-disposition:v:1", "attached_pic",
+			"-metadata:s:v:1", "title=Cover",
+			"-metadata:s:v:1", "comment=Cover (front)",
+			"-y",
+			"-loglevel", "error",
+			finalOutput,
+		)
+		output, mergeErr = cmdWithCover.CombinedOutput()
+	}
+	if mergeErr != nil || coverPath == "" {
+		cmd := exec.Command(ffmpegCmd,
+			"-i", videoTmp,
+			"-i", audioTmp,
+			"-c", "copy",
+			"-y",
+			"-loglevel", "error",
+			finalOutput,
+		)
+		output, mergeErr = cmd.CombinedOutput()
+	}
 	os.Remove(videoTmp)
 	os.Remove(audioTmp)
 
-	if err != nil {
-		return fmt.Errorf("P%d ffmpeg 合并失败: %v | %s", page.Page, err, string(output))
+	if mergeErr != nil {
+		return fmt.Errorf("P%d ffmpeg 合并失败: %v | %s", page.Page, mergeErr, string(output))
 	}
 
 	return nil
 }
 
 // DownloadPages 下载指定的分P列表（用于用户选择部分分P下载）
-func DownloadPages(bvid string, pages []PageInfo, outputDir, ffmpegPath string, onStatus func(msg string)) error {
+func DownloadPages(bvid string, pages []PageInfo, outputDir, ffmpegPath string, pref DownloadPreference, onStatus func(msg string)) error {
 	if onStatus == nil {
 		onStatus = func(msg string) {}
 	}
@@ -351,6 +375,16 @@ func DownloadPages(bvid string, pages []PageInfo, outputDir, ffmpegPath string, 
 
 	safeTitle := regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(info.Title, "_")
 	multiPage := len(info.Pages) > 1
+	coverPath := ""
+
+	if info.Pic != "" {
+		coverPath = filepath.Join(outputDir, safeTitle+".jpg")
+		onStatus("正在下载封面...")
+		if err := DownloadFile(info.Pic, coverPath, func(ProgressInfo) {}); err != nil {
+			onStatus("封面下载失败，将继续下载视频")
+			coverPath = ""
+		}
+	}
 
 	for _, page := range pages {
 		var filePrefix string
@@ -361,23 +395,21 @@ func DownloadPages(bvid string, pages []PageInfo, outputDir, ffmpegPath string, 
 			filePrefix = safeTitle
 		}
 
-		if err := downloadSinglePage(info, page, outputDir, ffmpegPath, filePrefix, onStatus); err != nil {
+		if err := downloadSinglePage(info, page, outputDir, ffmpegPath, filePrefix, coverPath, pref, onStatus); err != nil {
 			return err
 		}
 		onStatus(fmt.Sprintf("P%d 下载完成: %s.mp4", page.Page, filePrefix))
 	}
 
-	if info.Pic != "" {
-		coverPath := filepath.Join(outputDir, safeTitle+".jpg")
-		_ = DownloadFile(info.Pic, coverPath, func(ProgressInfo) {})
-	}
-
 	onStatus(fmt.Sprintf("下载完成，共 %d P", len(pages)))
+	if coverPath != "" {
+		_ = os.Remove(coverPath)
+	}
 	return nil
 }
 
 // DownloadVideo 完整的视频下载流程：获取信息 -> 下载所有分P -> 合并
-func DownloadVideo(bvid, outputDir, ffmpegPath string, onStatus func(msg string)) error {
+func DownloadVideo(bvid, outputDir, ffmpegPath string, pref DownloadPreference, onStatus func(msg string)) error {
 	if onStatus == nil {
 		onStatus = func(msg string) {} // 空回调
 	}
@@ -391,6 +423,15 @@ func DownloadVideo(bvid, outputDir, ffmpegPath string, onStatus func(msg string)
 	onStatus(fmt.Sprintf("视频: %s (UP主: %s, 共 %d P)", info.Title, info.Owner, len(info.Pages)))
 
 	safeTitle := regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(info.Title, "_")
+	coverPath := ""
+	if info.Pic != "" {
+		coverPath = filepath.Join(outputDir, safeTitle+".jpg")
+		onStatus("正在下载封面...")
+		if err := DownloadFile(info.Pic, coverPath, func(ProgressInfo) {}); err != nil {
+			onStatus("封面下载失败，将继续下载视频")
+			coverPath = ""
+		}
+	}
 
 	// 2. 遍历所有分P下载
 	multiPage := len(info.Pages) > 1
@@ -403,23 +444,20 @@ func DownloadVideo(bvid, outputDir, ffmpegPath string, onStatus func(msg string)
 			filePrefix = safeTitle
 		}
 
-		if err := downloadSinglePage(info, page, outputDir, ffmpegPath, filePrefix, onStatus); err != nil {
+		if err := downloadSinglePage(info, page, outputDir, ffmpegPath, filePrefix, coverPath, pref, onStatus); err != nil {
 			return err
 		}
 
 		onStatus(fmt.Sprintf("P%d 下载完成: %s.mp4", page.Page, filePrefix))
 	}
 
-	// 3. 下载封面（仅一次）
-	if info.Pic != "" {
-		coverPath := filepath.Join(outputDir, safeTitle+".jpg")
-		_ = DownloadFile(info.Pic, coverPath, func(ProgressInfo) {})
-	}
-
 	if multiPage {
 		onStatus(fmt.Sprintf("全部 %d P 下载完成!", len(info.Pages)))
 	} else {
 		onStatus(fmt.Sprintf("下载完成: %s", filepath.Join(outputDir, safeTitle+".mp4")))
+	}
+	if coverPath != "" {
+		_ = os.Remove(coverPath)
 	}
 	return nil
 }

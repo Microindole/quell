@@ -98,14 +98,11 @@ Object.assign(app, {
 
         try {
             const info = await go.main.App.GetVideoPages(bvid);
-            if (!info || !info.pages || info.pages.length <= 1) {
-                go.main.App.DownloadVideo(bvid, title);
-                this.state.downloadingParams.add(bvid);
-                this.renderRemoteList();
-                this.toast('已加入下载队列', 'success');
-            } else {
-                this.showPageModal(bvid, title, info);
+            if (!info || !info.pages || info.pages.length === 0) {
+                this.toast('未获取到可下载分P', 'error');
+                return;
             }
+            this.showPageModal(bvid, title, info);
         } catch (e) {
             this.toast('获取视频信息失败: ' + e, 'error');
         }
@@ -116,6 +113,7 @@ Object.assign(app, {
         this.state.pageSelectBvid = bvid;
         this.state.pageSelectTitle = title;
         this.state.pageSelectPages = info.pages;
+        this.state.pageStreamOptions = info.stream_options || [];
 
         document.getElementById('pageSelectTitle').innerText = `选择分P - ${info.title}`;
 
@@ -128,7 +126,70 @@ Object.assign(app, {
             </div>
         `).join('');
 
+        this.renderStreamOptions();
         document.getElementById('pageSelectModal').style.display = 'flex';
+    },
+
+    renderStreamOptions() {
+        const qualityEl = document.getElementById('downloadQuality');
+        const options = this.state.pageStreamOptions || [];
+
+        const qualityMap = new Map();
+        options.forEach(o => {
+            if (!qualityMap.has(o.quality_id)) {
+                qualityMap.set(o.quality_id, o.quality_label);
+            }
+        });
+
+        const qualities = [...qualityMap.entries()];
+        if (qualities.length === 0) {
+            qualityEl.innerHTML = `<option value="0">自动最高可用</option>`;
+            this.state.downloadPref.quality_id = 0;
+            this.renderCodecOptions();
+            return;
+        }
+
+        qualityEl.innerHTML = qualities.map(([qid, label]) => `<option value="${qid}">${label}</option>`).join('');
+
+        if (qualities.length > 0) {
+            this.state.downloadPref.quality_id = Number(qualities[0][0]);
+        } else {
+            this.state.downloadPref.quality_id = 0;
+        }
+        this.renderCodecOptions();
+    },
+
+    renderCodecOptions() {
+        const codecEl = document.getElementById('downloadCodec');
+        const qid = Number(document.getElementById('downloadQuality').value || 0);
+        this.state.downloadPref.quality_id = qid;
+
+        const codecMap = new Map();
+        (this.state.pageStreamOptions || [])
+            .filter(o => o.quality_id === qid)
+            .forEach(o => {
+                if (!codecMap.has(o.codec)) {
+                    codecMap.set(o.codec, o.codec_label);
+                }
+            });
+
+        const codecs = [...codecMap.entries()];
+        if (codecs.length === 0) {
+            codecEl.innerHTML = `<option value="">自动选择</option>`;
+            this.state.downloadPref.codec = '';
+            return;
+        }
+
+        codecEl.innerHTML = codecs.map(([codec, label]) => `<option value="${codec}">${label}</option>`).join('');
+        this.state.downloadPref.codec = codecs[0][0];
+    },
+
+    onQualityChanged() {
+        this.renderCodecOptions();
+    },
+
+    onCodecChanged() {
+        this.state.downloadPref.codec = document.getElementById('downloadCodec').value || '';
     },
 
     closePageModal() {
@@ -155,11 +216,15 @@ Object.assign(app, {
 
         const bvid = this.state.pageSelectBvid;
         const title = this.state.pageSelectTitle;
+        const pref = {
+            quality_id: Number(document.getElementById('downloadQuality').value || 0),
+            codec: document.getElementById('downloadCodec').value || ''
+        };
 
         if (selected.length === pages.length) {
-            go.main.App.DownloadVideo(bvid, title);
+            go.main.App.DownloadVideo(bvid, title, pref);
         } else {
-            go.main.App.DownloadVideoPages(bvid, selected, title);
+            go.main.App.DownloadVideoPages(bvid, selected, title, pref);
         }
 
         this.state.downloadingParams.add(bvid);

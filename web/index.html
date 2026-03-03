@@ -195,7 +195,10 @@
                     </div>
                     <div class="form-group">
                         <label>SESSDATA (Cookie)</label>
-                        <input type="password" id="cfgSessdata" placeholder="解锁 1080P+ 画质需要">
+                        <div class="input-row">
+                            <input type="password" id="cfgSessdata" placeholder="解锁 1080P+ 画质需要">
+                            <button class="btn btn-standard" onclick="app.startBiliLogin()">扫码登录</button>
+                        </div>
                         <small>在 B 站网页版登录后，从 Cookie 中复制 SESSDATA 字段的值。</small>
                     </div>
                     <div class="form-group">
@@ -226,11 +229,43 @@
     <div id="pageSelectModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) app.closePageModal()">
         <div class="modal">
             <h2 class="modal-title" id="pageSelectTitle">选择下载的分P</h2>
+            <div class="modal-form-grid">
+                <div class="form-group">
+                    <label>画质</label>
+                    <select id="downloadQuality" onchange="app.onQualityChanged()"></select>
+                </div>
+                <div class="form-group">
+                    <label>编码</label>
+                    <select id="downloadCodec" onchange="app.onCodecChanged()"></select>
+                </div>
+            </div>
             <div class="page-list" id="pageSelectList"></div>
             <div class="modal-actions">
                 <button class="btn btn-standard" onclick="app.closePageModal()">取消</button>
                 <button class="btn btn-standard" onclick="app.selectAllPages()">全部选中</button>
                 <button class="btn btn-primary" onclick="app.downloadSelectedPages()">下载选中</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- B站登录弹窗 -->
+    <div id="biliLoginModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) app.closeBiliLoginModal()">
+        <div class="modal">
+            <h2 class="modal-title">B站扫码登录</h2>
+            <div style="display:flex; justify-content:center;">
+                <img id="biliLoginQrImage" alt="登录二维码" style="width:220px; height:220px; border-radius:8px; border:1px solid var(--card-border); background:var(--control-bg);">
+            </div>
+            <div class="form-group" style="margin:0;">
+                <small id="biliLoginStatus">正在初始化登录会话...</small>
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label>登录链接</label>
+                <input type="text" id="biliLoginURL" readonly>
+                <small>请用手机 B站 App 扫描上方二维码并确认登录。</small>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-standard" onclick="app.closeBiliLoginModal()">取消</button>
+                <button class="btn btn-standard" onclick="app.openLoginBrowser()">打开浏览器</button>
             </div>
         </div>
     </div>
