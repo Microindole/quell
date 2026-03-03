@@ -269,6 +269,12 @@ type VideoListResult struct {
 	TotalPages int                     `json:"total_pages"`
 }
 
+type DynamicListResult struct {
+	Items   []crawler.BiliDynamicItem `json:"items"`
+	Offset  string                    `json:"offset"`
+	HasMore bool                      `json:"has_more"`
+}
+
 func (a *App) GetUserVideos(uid string, page int, pageSize int, order string) (*VideoListResult, error) {
 	if page <= 0 {
 		page = 1
@@ -315,6 +321,59 @@ func (a *App) SearchVideos(keyword string, page int, pageSize int, order string)
 		PageSize:   pageSize,
 		TotalPages: totalPages,
 	}, nil
+}
+
+func (a *App) GetUserDynamics(uid string, offset string) (*DynamicListResult, error) {
+	result, err := crawler.GetUserDynamics(uid, offset)
+	if err != nil {
+		return nil, fmt.Errorf("获取动态失败: %w", err)
+	}
+	return &DynamicListResult{
+		Items:   result.Items,
+		Offset:  result.Offset,
+		HasMore: result.HasMore,
+	}, nil
+}
+
+func (a *App) DownloadDynamicMedia(id string, urls []string) ([]string, error) {
+	if len(urls) == 0 {
+		return nil, fmt.Errorf("没有可下载的媒体")
+	}
+	outDir := filepath.Join(a.remoteOutputDir(), "dynamics")
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建动态目录失败: %w", err)
+	}
+
+	safeID := regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(strings.TrimSpace(id), "_")
+	if safeID == "" {
+		safeID = "dynamic"
+	}
+	baseDir := filepath.Join(outDir, safeID)
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建动态子目录失败: %w", err)
+	}
+
+	saved := make([]string, 0, len(urls))
+	for i, raw := range urls {
+		u := strings.TrimSpace(raw)
+		if u == "" {
+			continue
+		}
+		ext := ".bin"
+		if parsedExt := strings.ToLower(filepath.Ext(strings.Split(u, "?")[0])); parsedExt != "" && len(parsedExt) <= 8 {
+			ext = parsedExt
+		}
+		name := fmt.Sprintf("media_%02d%s", i+1, ext)
+		target := filepath.Join(baseDir, name)
+		if err := downloader.DownloadFile(u, target, nil); err != nil {
+			return saved, fmt.Errorf("下载媒体失败 (%s): %w", u, err)
+		}
+		saved = append(saved, target)
+	}
+	if len(saved) == 0 {
+		return nil, fmt.Errorf("没有有效媒体链接")
+	}
+	return saved, nil
 }
 
 // --- 远程：获取分P列表 ---

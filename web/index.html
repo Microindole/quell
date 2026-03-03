@@ -63,6 +63,16 @@
                     </span>
                     远程下载
                 </button>
+                <button class="nav-item" onclick="app.switchTab('dynamics')">
+                    <span class="icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M6 12C6 8.68629 8.68629 6 12 6C15.3137 6 18 8.68629 18 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <path d="M4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
+                            <circle cx="12" cy="16.5" r="2" fill="currentColor"/>
+                        </svg>
+                    </span>
+                    动态流
+                </button>
                 <button class="nav-item" onclick="app.switchTab('logs')">
                     <span class="icon">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -119,7 +129,7 @@
                 <header class="section-header">
                     <h1>远程视频下载</h1>
                 </header>
-                <div class="search-bar">
+                <div class="search-bar dynamic-search-bar">
                     <select id="searchTypeSelect" onchange="app.onRemoteSearchTypeChanged()">
                         <option value="user" selected>UP主</option>
                         <option value="video">视频</option>
@@ -166,6 +176,24 @@
                         </div>
                     </div>
                     <div class="card-grid" id="remoteVideoList"></div>
+                </div>
+            </section>
+
+            <!-- 动态流 -->
+            <section id="view-dynamics" class="view-section">
+                <header class="section-header">
+                    <h1>UP主动态流</h1>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn btn-standard" onclick="app.clearDynamics()">清空</button>
+                    </div>
+                </header>
+                <div class="search-bar remote-search-bar">
+                    <input type="text" id="dynamicUIDInput" placeholder="输入UP主UID后回车" onkeypress="if(event.key==='Enter') app.fetchDynamics()">
+                    <button class="btn btn-primary" onclick="app.fetchDynamics()">获取动态</button>
+                </div>
+                <div id="dynamicList" class="dynamic-feed"></div>
+                <div style="margin-top:14px; display:flex; justify-content:center;">
+                    <button id="btnMoreDynamics" class="btn btn-standard" onclick="app.loadMoreDynamics()" style="display:none;">加载更多</button>
                 </div>
             </section>
 
@@ -306,6 +334,7 @@
     <script src="js/events.js"></script>
     <script src="js/local.js"></script>
     <script src="js/remote.js"></script>
+    <script src="js/dynamics.js"></script>
     <script src="js/settings.js"></script>
 </body>
 </html>

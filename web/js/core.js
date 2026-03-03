@@ -29,6 +29,12 @@ const app = {
         remoteSort: 'pubdate',
         remoteSearchTimer: null,
         remoteSearching: false,
+        dynamicUID: '',
+        dynamicOffset: '',
+        dynamicHasMore: false,
+        dynamicLoading: false,
+        dynamicCooldownUntil: 0,
+        dynamics: [],
         pageSelectBvid: '',
         pageSelectTitle: '',
         pageSelectLength: '',
@@ -58,7 +64,7 @@ const app = {
         document.getElementById(`view-${tabName}`).classList.add('active');
 
         document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-        const btnIndex = ['local', 'remote', 'logs', 'settings'].indexOf(tabName);
+        const btnIndex = ['local', 'remote', 'dynamics', 'logs', 'settings'].indexOf(tabName);
         if (btnIndex >= 0) {
             document.querySelectorAll('.nav-item')[btnIndex].classList.add('active');
         }

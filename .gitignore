@@ -14,6 +14,7 @@ quell_config.json
 # 外部依赖源码
 bbdown_src/
 BilibiliDown/
+# bilibili-linux/
 
 # 临时文件
 temp/

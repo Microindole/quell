@@ -145,46 +145,65 @@ input[type="password"]:focus {
 
 /* ===== 搜索栏 ===== */
 .search-bar {
-    display: grid;
-    grid-template-columns: 150px 150px minmax(260px, 1fr) 110px;
-    gap: 12px;
+    display: flex;
+    gap: 8px;
     margin-bottom: 24px;
-    max-width: 900px;
+    max-width: 860px;
     align-items: center;
 }
 
 .search-bar input,
 .search-bar select {
-    height: 46px;
-    font-size: 15px;
+    height: 40px;
+    font-size: 14px;
 }
 
 .search-bar input {
-    min-width: 220px;
+    flex: 1;
+    min-width: 200px;
 }
 
 .search-bar .btn {
-    height: 46px;
+    height: 40px;
     justify-content: center;
     white-space: nowrap;
-    padding: 0 16px;
+    padding: 0 14px;
+}
+
+.remote-search-bar select {
+    width: 128px;
+    min-width: 128px;
+}
+
+.dynamic-search-bar {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) 130px;
+    max-width: 560px;
 }
 
 @media (max-width: 1000px) {
-    .search-bar {
-        grid-template-columns: 1fr 1fr;
+    .remote-search-bar {
+        flex-wrap: wrap;
         max-width: 100%;
     }
 
-    .search-bar input {
-        grid-column: 1 / -1;
-        min-width: 0;
+    .remote-search-bar input {
+        min-width: 100%;
     }
 
-    .search-bar .btn {
-        grid-column: 2;
-        justify-self: end;
-        min-width: 110px;
+    .remote-search-bar .btn {
+        min-width: 100px;
+    }
+}
+
+@media (max-width: 760px) {
+    .dynamic-search-bar {
+        grid-template-columns: 1fr;
+    }
+
+    .dynamic-search-bar .btn {
+        grid-column: auto;
+        justify-self: start;
     }
 }
 
@@ -231,6 +250,150 @@ input[type="password"]:focus {
 .remote-select input {
     width: auto;
     margin: 0;
+}
+
+.dynamic-feed {
+    max-width: 760px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dynamic-item {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+}
+
+.dynamic-head {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.dynamic-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--control-bg);
+}
+
+.dynamic-head-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dynamic-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.dynamic-time {
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.dynamic-body {
+    margin-left: 54px;
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dynamic-text {
+    white-space: pre-wrap;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    font-size: 14px;
+    user-select: text;
+    margin: 0;
+}
+
+.dynamic-rich-link {
+    color: var(--accent-color);
+    text-decoration: none;
+}
+
+.dynamic-rich-link:hover {
+    text-decoration: underline;
+}
+
+.dynamic-emoji {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    vertical-align: text-bottom;
+}
+
+.dynamic-media-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(90px, 1fr));
+    gap: 8px;
+    max-width: 520px;
+}
+
+.dynamic-media-grid img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border-radius: 8px;
+    object-fit: cover;
+    background: var(--control-bg);
+    border: 1px solid var(--card-border);
+}
+
+.dynamic-video-box {
+    font-size: 13px;
+    color: var(--text-secondary);
+    padding: 8px 10px;
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    background: var(--control-bg);
+}
+
+.dynamic-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+}
+
+.dynamic-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid var(--card-border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: default;
+    transition: all .12s ease;
+}
+
+.dynamic-action-btn:hover {
+    background: var(--control-bg);
+    color: var(--text-primary);
+    border-color: var(--control-border);
+}
+
+.dynamic-action-primary {
+    color: var(--accent-color);
+    border-color: color-mix(in srgb, var(--accent-color) 45%, var(--card-border));
+}
+
+[data-theme="light"] .dynamic-item {
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .dynamic-action-btn {
+    background: #fff;
 }
 
 /* ===== Toast 通知 ===== */
