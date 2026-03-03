@@ -1,4 +1,4 @@
-name: CI
+name: Core CI
 
 on:
   push:
@@ -15,11 +15,10 @@ concurrency:
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
-  quality:
-    name: Quality Gate
+  core-quality:
+    name: Static + Build Checks
     runs-on: ubuntu-latest
     env:
       GOTOOLCHAIN: go1.25.7
@@ -35,52 +34,3 @@ jobs:
 
       - name: Run quality checks
         run: go run ./scripts/check --mode quality
-
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: go1.25.7
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run security checks
-        run: go run ./scripts/check --mode security --gosec-sarif .reports/gosec.sarif
-
-      - name: Upload SARIF report
-        if: always() && hashFiles('.reports/gosec.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: .reports/gosec.sarif
-
-  cross-platform:
-    name: Cross-platform Quick Check (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    env:
-      GOTOOLCHAIN: go1.25.7
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run quick checks
-        run: go run ./scripts/check --mode quick

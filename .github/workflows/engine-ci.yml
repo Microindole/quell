@@ -1,0 +1,50 @@
+name: Engine CI
+
+on:
+  push:
+    branches:
+      - "**"
+    tags-ignore:
+      - "v*"
+    paths:
+      - "internal/engine/**"
+      - "internal/domain/**"
+      - "scripts/merge.ps1"
+  pull_request:
+    paths:
+      - "internal/engine/**"
+      - "internal/domain/**"
+      - "scripts/merge.ps1"
+  workflow_dispatch:
+
+concurrency:
+  group: engine-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  engine-check:
+    name: Merge Engine Checks
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: go1.25.7
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run baseline checks
+        run: go run ./scripts/check --mode quick
+
+      - name: Run engine package tests
+        run: go test ./internal/engine/... ./internal/domain/...
+
+      - name: Build all packages
+        run: go build ./...
