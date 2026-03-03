@@ -354,7 +354,7 @@ func downloadSinglePage(info *VideoInfo, page PageInfo, outputDir, ffmpegPath, f
 	os.Remove(audioTmp)
 
 	if mergeErr != nil {
-		return fmt.Errorf("P%d ffmpeg 合并失败: %v | %s", page.Page, mergeErr, string(output))
+		return fmt.Errorf("p%d ffmpeg 合并失败: %w | %s", page.Page, mergeErr, string(output))
 	}
 
 	return nil
@@ -363,7 +363,7 @@ func downloadSinglePage(info *VideoInfo, page PageInfo, outputDir, ffmpegPath, f
 // DownloadPages 下载指定的分P列表（用于用户选择部分分P下载）
 func DownloadPages(bvid string, pages []PageInfo, outputDir, ffmpegPath string, pref DownloadPreference, onStatus func(msg string)) error {
 	if onStatus == nil {
-		onStatus = func(msg string) {}
+		onStatus = func(string) {}
 	}
 
 	onStatus("正在获取视频信息...")
@@ -411,7 +411,7 @@ func DownloadPages(bvid string, pages []PageInfo, outputDir, ffmpegPath string, 
 // DownloadVideo 完整的视频下载流程：获取信息 -> 下载所有分P -> 合并
 func DownloadVideo(bvid, outputDir, ffmpegPath string, pref DownloadPreference, onStatus func(msg string)) error {
 	if onStatus == nil {
-		onStatus = func(msg string) {} // 空回调
+		onStatus = func(string) {} // 空回调
 	}
 
 	// 1. 获取视频信息

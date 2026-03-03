@@ -6,7 +6,7 @@ Quell 是一个基于 Go 语言开发的工具，主要用于 Bilibili 视频下
 - **GUI 模式**: 使用 Wails v2 构建的桌面应用（`-gui` 参数启动）
 
 ## 技术栈
-- **语言**: Go (1.25.2)
+- **语言**: Go (1.25.7)
 - **GUI 框架**: [Wails v2](https://wails.io/) (WebView2 渲染，无边框窗口 + 自定义标题栏)
 - **TUI 框架**: [Bubble Tea](https://github.com/charmbracelet/bubbletea)
 - **核心依赖**:
@@ -61,10 +61,16 @@ Quell 是一个基于 Go 语言开发的工具，主要用于 Bilibili 视频下
 - `output_format`: 合并导出格式，`"mp4"`（默认）或 `"mkv"`
 
 ## 维护与使用规范
+- **统一代码检查命令（跨平台）**:
+  - 通用（推荐，三端一致）: `go run ./scripts/check <mode>`
+  - `mode` 取值: `quick` / `quality` / `security` / `all`
+  - Windows 便捷命令: `.\qc.cmd <mode>`（默认 `quick`）
+  - macOS/Linux 便捷命令: `./qc <mode>`（首次若无执行权限先执行 `chmod +x qc`）
+  - `security` 模式建议使用补丁工具链: `GOTOOLCHAIN=go1.25.7`
 - **按需读取技能**: Agent 在涉及特定领域（如修改 UI 或调用 API）时，应主动读取 `prompt/skill/` 对应目录下的 `SKILL.md`。
 - **自动同步**: 任何重大变更后，Agent 需同步更新 `prompt/` 内容，确保"记忆"持久化。
 - **禁止使用 Emoji**: 在所有生成的代码、文档和回复中，严禁使用 Emoji 表情符号。
 - **纯中文界面**: 界面文本（包括选项、Label、Button）必须使用纯中文，严禁出现 "中文 (English)" 这种括号备注形式。
 
 
-*Ctx Updated: 2026-02-24 23:30:00*
+*Ctx Updated: 2026-03-03 18:57:28*

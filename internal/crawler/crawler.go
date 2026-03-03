@@ -69,7 +69,9 @@ func fetchBuvid() (string, string) {
 	// 如果获取失败，用随机 UUID 兜底
 	if cachedBuvid3 == "" {
 		b := make([]byte, 16)
-		rand.Read(b)
+		if _, err := rand.Read(b); err != nil {
+			return "", ""
+		}
 		b[6] = (b[6] & 0x0f) | 0x40
 		b[8] = (b[8] & 0x3f) | 0x80
 		cachedBuvid3 = strings.ToUpper(fmt.Sprintf("%x-%x-%x-%x-%x",
@@ -221,10 +223,10 @@ func GetUserVideos(mid string, pn int) ([]BiliVideoMeta, int, error) {
 		if err2 != nil {
 			return nil, 0, err2
 		}
-		return nil, 0, fmt.Errorf("B站 API 错误 (code=%d): %s（已重试一次）", code2, msg2)
+		return nil, 0, fmt.Errorf("b站 API 错误 (code=%d): %s（已重试一次）", code2, msg2)
 	}
 
-	return nil, 0, fmt.Errorf("B站 API 错误 (code=%d): %s", code, msg)
+	return nil, 0, fmt.Errorf("b站 API 错误 (code=%d): %s", code, msg)
 }
 
 // BiliUserMeta 搜索到的用户信息
@@ -293,7 +295,7 @@ func SearchUsers(keyword string) ([]BiliUserMeta, error) {
 		return nil, err
 	}
 	if result.Code != 0 {
-		return nil, fmt.Errorf("B站 API 错误 (code=%d): %s", result.Code, result.Message)
+		return nil, fmt.Errorf("b站 API 错误 (code=%d): %s", result.Code, result.Message)
 	}
 
 	// 转换结构

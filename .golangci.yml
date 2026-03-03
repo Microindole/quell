@@ -1,0 +1,32 @@
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  disable-all: true
+  enable:
+    - bodyclose
+    - dupl
+    - errorlint
+    - errcheck
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unconvert
+    - unused
+
+linters-settings:
+  revive:
+    rules:
+      - name: empty-lines
+      - name: unused-parameter
+      - name: unnecessary-stmt
+  dupl:
+    threshold: 180
+
+issues:
+  exclude-rules:
+    - path: scripts/.*
+      linters:
+        - revive

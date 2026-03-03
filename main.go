@@ -54,7 +54,6 @@ type model struct {
 	selectedUID  string
 	page         int
 	totalVideos  int
-	downloadLog  string // 简单的下载日志
 	progressChan chan downloadProgressMsg
 
 	err       error
@@ -165,7 +164,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					// 2. 保存 FFmpeg -> 保存文件 -> 转到扫描
 					m.cfg.FFmpegPath = val
-					config.Save(m.cfg)
+					if err := config.Save(m.cfg); err != nil {
+						m.statusMsg = fmt.Sprintf("保存配置失败: %v", err)
+						return m, nil
+					}
 					m.state = stateScanning
 					return m, tea.Batch(m.spinner.Tick, scanCmd(m.cfg))
 				}

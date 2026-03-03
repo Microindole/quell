@@ -46,7 +46,7 @@ func GenerateWebLoginQRCode() (loginURL, qrcodeKey string, err error) {
 		return "", "", fmt.Errorf("解析登录二维码响应失败: %w", err)
 	}
 	if result.Code != 0 {
-		return "", "", fmt.Errorf("B站登录接口错误 (code=%d): %s", result.Code, result.Message)
+		return "", "", fmt.Errorf("b站登录接口错误 (code=%d): %s", result.Code, result.Message)
 	}
 	if result.Data.URL == "" || result.Data.QrcodeKey == "" {
 		return "", "", fmt.Errorf("登录二维码响应缺少必要字段")
@@ -75,7 +75,7 @@ func PollWebLoginStatus(qrcodeKey string) (status, message, sess string, err err
 		return "", "", "", fmt.Errorf("解析登录状态失败: %w", err)
 	}
 	if result.Code != 0 {
-		return "", "", "", fmt.Errorf("B站登录状态接口错误 (code=%d): %s", result.Code, result.Message)
+		return "", "", "", fmt.Errorf("b站登录状态接口错误 (code=%d): %s", result.Code, result.Message)
 	}
 
 	switch result.Data.Code {

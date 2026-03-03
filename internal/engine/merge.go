@@ -57,7 +57,7 @@ func RunMerge(task domain.VideoTask, cfg MergeConfig) (string, error) {
 	for _, pair := range pairs {
 		outName := GetOutputName(task, pair.Page)
 		outPath := filepath.Join(outDir, outName+"."+cfg.OutputFormat)
-		
+
 		if cfg.OnProgress != nil {
 			cfg.OnProgress(fmt.Sprintf("正在处理: %s", outName))
 		}
@@ -130,7 +130,7 @@ func mergePair(pair m4sPair, outPath, coverPath, ffmpegPath, format string, onPr
 	if onProgress == nil {
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("FFmpeg 错误: %v\n输出:\n%s", err, string(output))
+			return fmt.Errorf("FFmpeg 错误: %w\n输出:\n%s", err, string(output))
 		}
 		return nil
 	}
@@ -172,7 +172,7 @@ func buildFFmpegArgs(videoPath, audioPath, coverPath, outPath, format string, in
 
 	// 2. 输入文件 (所有的 -i 必须排在前面)
 	args = append(args, "-i", videoPath, "-i", audioPath)
-	
+
 	hasCover := coverPath != ""
 	if hasCover && format != "mkv" {
 		// MP4 模式下封面作为第三个输入流
@@ -183,16 +183,16 @@ func buildFFmpegArgs(videoPath, audioPath, coverPath, outPath, format string, in
 	if hasCover {
 		if format == "mkv" {
 			// MKV 模式使用 -attach
-			args = append(args, 
-				"-map", "0:v", "-map", "1:a", 
+			args = append(args,
+				"-map", "0:v", "-map", "1:a",
 				"-c", "copy",
-				"-attach", coverPath, 
+				"-attach", coverPath,
 				"-metadata:s:t:0", "mimetype=image/jpeg",
 			)
 		} else {
 			// MP4 模式映射三个输入流
-			args = append(args, 
-				"-map", "0:v", "-map", "1:a", "-map", "2:v", 
+			args = append(args,
+				"-map", "0:v", "-map", "1:a", "-map", "2:v",
 				"-c", "copy",
 				"-disposition:v:1", "attached_pic",
 			)
@@ -289,7 +289,7 @@ func findM4SPairs(dir, ffmpegPath string) ([]m4sPair, error) {
 
 		filename := d.Name()
 		page, quality, ok := parseM4SName(filename)
-		
+
 		// 1. 第一层：根据文件名关键字判断 (极快)
 		isAudioFound := false
 		isAudio := false
@@ -328,7 +328,7 @@ func findM4SPairs(dir, ffmpegPath string) ([]m4sPair, error) {
 
 		c := candidate{path: path, quality: quality}
 		entry := pageMap[page]
-		
+
 		if isAudio { // 音频流
 			if entry[1].path == "" || quality > entry[1].quality {
 				entry[1] = c
@@ -367,7 +367,7 @@ func probeM4SType(path, ffmpegPath string) (isAudio bool, err error) {
 
 	// 尝试构造 ffprobe 路径
 	ffprobePath := strings.Replace(ffmpegPath, "ffmpeg", "ffprobe", 1)
-	
+
 	var cmd *exec.Cmd
 	// 检查 ffprobe 是否可用
 	if _, err := exec.LookPath(ffprobePath); err == nil || (ffprobePath != "ffprobe" && ffprobePath != ffmpegPath) {
@@ -385,7 +385,6 @@ func probeM4SType(path, ffmpegPath string) (isAudio bool, err error) {
 	}
 	return false, nil // 默认认为视频
 }
-
 
 // parseM4SName 解析 B站 .m4s 文件名，提取分P序号和画质代码
 //

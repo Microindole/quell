@@ -6,9 +6,35 @@ on:
       - 'v*'
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: go1.25.7
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run quality checks
+        run: go run ./scripts/check --mode quality
+
   build-windows:
+    needs: preflight
     runs-on: windows-latest
+    env:
+      GOTOOLCHAIN: go1.25.7
     permissions:
       contents: write
     steps:
@@ -18,7 +44,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version-file: go.mod
           cache: true
 
       - name: Setup Node
@@ -27,7 +53,7 @@ jobs:
           node-version: '18'
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 
       - name: Build Standard Version
         run: |
@@ -47,6 +73,19 @@ jobs:
           wails build -platform windows/amd64 -tags bundled -ldflags "-s -w"
           mv build/bin/quell.exe build/bin/quell_with_ffmpeg.exe
 
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          $items = @(
+            "build/bin/quell_standard.exe",
+            "build/bin/quell_with_ffmpeg.exe"
+          )
+          $lines = foreach ($item in $items) {
+            $hash = (Get-FileHash -Path $item -Algorithm SHA256).Hash.ToLower()
+            "$hash  $item"
+          }
+          $lines | Set-Content build/bin/SHA256SUMS.txt
+
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
@@ -54,6 +93,7 @@ jobs:
           files: |
             build/bin/quell_standard.exe
             build/bin/quell_with_ffmpeg.exe
+            build/bin/SHA256SUMS.txt
           draft: false
           prerelease: false
         env:

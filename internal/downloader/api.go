@@ -55,7 +55,7 @@ func GetVideoInfo(bvid string) (*VideoInfo, error) {
 	}
 
 	if result.Code != 0 {
-		return nil, fmt.Errorf("B站 API 错误: %d %s", result.Code, result.Message)
+		return nil, fmt.Errorf("b站 API 错误: %d %s", result.Code, result.Message)
 	}
 
 	info := &VideoInfo{

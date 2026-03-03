@@ -202,7 +202,12 @@ func (a *App) BatchMergeVideo() {
 		})
 		runtime.EventsEmit(a.ctx, "batch_merge", map[string]interface{}{"status": "done"})
 		// 重新扫描以更新状态
-		a.ScanVideos()
+		if _, err := a.ScanVideos(); err != nil {
+			runtime.EventsEmit(a.ctx, "batch_merge", map[string]interface{}{
+				"status": "rescan_error",
+				"error":  err.Error(),
+			})
+		}
 	}()
 }
 
