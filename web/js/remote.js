@@ -66,8 +66,8 @@ Object.assign(app, {
         this.state.batchDownloading = false;
         this.state.currentUID = '';
 
-        document.getElementById('userResults').style.display = 'none';
-        document.getElementById('videoListHeader').style.display = 'none';
+        document.getElementById('userResults').classList.add('hidden');
+        document.getElementById('videoListHeader').classList.add('hidden');
         this.setRemoteLoading(true, '正在搜索...');
 
         try {
@@ -87,7 +87,7 @@ Object.assign(app, {
                 this.renderRemoteList();
                 if (this.state.users.length > 0) {
                     this.renderUserList();
-                    document.getElementById('userResults').style.display = 'block';
+                    document.getElementById('userResults').classList.remove('hidden');
                 } else {
                     this.toast('未找到匹配的UP主', 'info');
                 }
@@ -105,7 +105,7 @@ Object.assign(app, {
             <div class="user-card" onclick="app.fetchUserVideos('${u.mid}', 1, app.state.remoteSort || 'pubdate')">
                 <img class="user-avatar" src="${u.upic}" referrerpolicy="no-referrer" alt="${u.uname}">
                 <h4>${u.uname}</h4>
-                <div class="card-meta" style="justify-content:center; margin-top:5px;">
+                <div class="card-meta user-meta-line">
                     UID: ${u.mid} | 粉丝: ${u.fans}
                 </div>
             </div>
@@ -125,7 +125,7 @@ Object.assign(app, {
             this.state.remoteVideos = data.videos || [];
             this.state.remoteTotal = data.total || 0;
             this.state.remoteTotalPages = data.total_pages || 0;
-            document.getElementById('videoListHeader').style.display = 'flex';
+            document.getElementById('videoListHeader').classList.remove('hidden');
             this.updateRemotePager();
             this.renderRemoteList();
         } catch (e) {
@@ -148,7 +148,7 @@ Object.assign(app, {
             this.state.remoteVideos = data.videos || [];
             this.state.remoteTotal = data.total || 0;
             this.state.remoteTotalPages = data.total_pages || 0;
-            document.getElementById('videoListHeader').style.display = 'flex';
+            document.getElementById('videoListHeader').classList.remove('hidden');
             this.updateRemotePager();
             this.renderRemoteList();
             if (this.state.remoteVideos.length === 0) {
@@ -249,26 +249,26 @@ Object.assign(app, {
             const isSelected = this.state.selectedRemote.has(v.bvid);
             return `
             <div class="card">
-                <div style="position:relative;">
+                <div class="card-thumb-wrap">
                     <label class="remote-select">
                         <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="app.toggleRemoteSelect(event, '${v.bvid}', '${v.title.replace(/'/g, "\\'").replace(/"/g, '&quot;')}', '${v.length || ''}')">
                         <span>选择</span>
                     </label>
                     <img class="card-img-top" src="${v.pic}" referrerpolicy="no-referrer">
-                    <div style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.7); color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">${v.length}</div>
+                    <div class="card-badge">${v.length}</div>
                 </div>
                 <div class="card-body">
                     <h5 class="card-title" title="${v.title}">${v.title}</h5>
                     <div class="card-meta">
                         <span>${new Date(v.created * 1000).toLocaleDateString()}</span>
-                        <span style="display:inline-flex; align-items:center; gap:4px;">
+                        <span class="meta-stat">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                 <path d="M3 7C3 5.89543 3.89543 5 5 5H15C16.1046 5 17 5.89543 17 7V17C17 18.1046 16.1046 19 15 19H5C3.89543 19 3 18.1046 3 17V7Z" stroke="currentColor" stroke-width="1.8"/>
                                 <path d="M21 8L17 11V13L21 16V8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
                             </svg>
                             ${v.play || '--'}
                         </span>
-                        <span style="display:inline-flex; align-items:center; gap:4px;">
+                        <span class="meta-stat">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                 <path d="M5 6H19C20.1046 6 21 6.89543 21 8V14C21 15.1046 20.1046 16 19 16H11L7 19V16H5C3.89543 16 3 15.1046 3 14V8C3 6.89543 3.89543 6 5 6Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
                             </svg>
@@ -388,7 +388,7 @@ Object.assign(app, {
         `).join('');
 
         this.renderStreamOptions();
-        document.getElementById('pageSelectModal').style.display = 'flex';
+        document.getElementById('pageSelectModal').classList.remove('hidden');
     },
 
     renderStreamOptions() {
@@ -454,7 +454,7 @@ Object.assign(app, {
     },
 
     closePageModal() {
-        document.getElementById('pageSelectModal').style.display = 'none';
+        document.getElementById('pageSelectModal').classList.add('hidden');
     },
 
     selectAllPages() {

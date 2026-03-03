@@ -60,7 +60,7 @@ Object.assign(app, {
         const listEl = document.getElementById('dynamicList');
         if (listEl) listEl.innerHTML = '<div class="empty-state">暂无动态</div>';
         const moreBtn = document.getElementById('btnMoreDynamics');
-        if (moreBtn) moreBtn.style.display = 'none';
+        if (moreBtn) moreBtn.classList.add('hidden');
     },
 
     async fetchDynamics() {
@@ -122,7 +122,10 @@ Object.assign(app, {
             this.state.dynamicOffset = data.offset || '';
             this.state.dynamicHasMore = !!data.has_more;
             this.renderDynamics();
-            if (moreBtn) moreBtn.style.display = this.state.dynamicHasMore ? 'inline-flex' : 'none';
+            if (moreBtn) {
+                if (this.state.dynamicHasMore) moreBtn.classList.remove('hidden');
+                else moreBtn.classList.add('hidden');
+            }
         } catch (e) {
             const msg = String(e || '');
             if (msg.includes('code=-412')) {

@@ -56,7 +56,7 @@ Object.assign(app, {
         statusEl.innerText = '正在初始化登录会话...';
         urlEl.value = '';
         qrEl.removeAttribute('src');
-        modal.style.display = 'flex';
+        modal.classList.remove('hidden');
 
         try {
             const data = await go.main.App.StartBiliLogin();
@@ -80,7 +80,7 @@ Object.assign(app, {
 
     closeBiliLoginModal() {
         const modal = document.getElementById('biliLoginModal');
-        if (modal) modal.style.display = 'none';
+        if (modal) modal.classList.add('hidden');
         const qrEl = document.getElementById('biliLoginQrImage');
         if (qrEl) qrEl.removeAttribute('src');
         if (this.state.loginPollingTimer) {

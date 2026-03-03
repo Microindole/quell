@@ -56,10 +56,10 @@ Object.assign(app, {
 
             return `
             <div class="card">
-                <div style="position:relative;">
+                <div class="card-thumb-wrap">
                     <img class="card-img-top" src="${task.Info.coverPath}"
                         onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMjUyNjNhIi8+PC9zdmc+'">
-                    <div style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.7); color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">${task.Info.uname}</div>
+                    <div class="card-badge">${task.Info.uname}</div>
                 </div>
                 <div class="card-body">
                     <h5 class="card-title" title="${task.Info.title}">${task.Info.title}</h5>
