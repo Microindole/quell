@@ -1,36 +1,108 @@
 // 远程下载视图：用户搜索 / 视频列表 / 下载 / 分P选择弹窗
 
 Object.assign(app, {
+    onRemoteKeywordInput() {
+        if (this.state.remoteSearchTimer) {
+            clearTimeout(this.state.remoteSearchTimer);
+        }
+        this.state.remoteSearchTimer = setTimeout(() => {
+            const keyword = (document.getElementById('searchInput').value || '').trim();
+            if (keyword.length >= 2) {
+                this.searchRemote();
+            }
+        }, 350);
+    },
+
+    setRemoteLoading(loading, message = '正在搜索...') {
+        this.state.remoteSearching = loading;
+        const inputEl = document.getElementById('searchInput');
+        const typeEl = document.getElementById('searchTypeSelect');
+        const sortEl = document.getElementById('sortTypeSelect');
+        if (inputEl) inputEl.disabled = false; // 保持可输入，避免“卡死感”
+        if (typeEl) typeEl.disabled = loading;
+        if (sortEl) sortEl.disabled = loading;
+        if (loading) {
+            document.getElementById('remoteVideoList').innerHTML = `<div class="empty-state">${message}</div>`;
+        }
+    },
+
+    onRemoteSearchTypeChanged() {
+        const mode = (document.getElementById('searchTypeSelect').value || 'user').trim();
+        const input = document.getElementById('searchInput');
+        if (input) {
+            input.placeholder = mode === 'video'
+                ? '输入视频关键词，或 BV/AV/CV...'
+                : '输入 UID 或 UP主昵称...';
+        }
+    },
+
+    onRemoteSortChanged() {
+        if (this.state.remoteSearching) return;
+        const order = (document.getElementById('sortTypeSelect').value || 'pubdate').trim();
+        this.state.remoteSort = order;
+        if (this.state.remoteSearchMode === 'video' && this.state.remoteKeyword) {
+            this.fetchVideosByKeyword(this.state.remoteKeyword, 1, order);
+            return;
+        }
+        if (this.state.currentUID) {
+            this.fetchUserVideos(this.state.currentUID, 1, order);
+        }
+    },
+
     // --- 搜索 ---
     async searchRemote() {
+        if (this.state.remoteSearching) return;
         const keyword = document.getElementById('searchInput').value.trim();
         if (!keyword) return;
+        const mode = (document.getElementById('searchTypeSelect').value || 'user').trim();
+        const order = (document.getElementById('sortTypeSelect').value || 'pubdate').trim();
+
+        this.state.remoteSearchMode = mode;
+        this.state.remoteKeyword = keyword;
+        this.state.remoteSort = order;
+
         this.state.selectedRemote.clear();
         this.state.downloadQueue = [];
         this.state.batchDownloading = false;
+        this.state.currentUID = '';
 
         document.getElementById('userResults').style.display = 'none';
         document.getElementById('videoListHeader').style.display = 'none';
-        document.getElementById('remoteVideoList').innerHTML = '';
+        this.setRemoteLoading(true, '正在搜索...');
 
         try {
+            if (mode === 'video') {
+                await this.fetchVideosByKeyword(keyword, 1, order);
+                return;
+            }
+
             const data = await go.main.App.SearchUser(keyword);
             if (data.type === 'uid') {
-                this.fetchUserVideos(data.uid);
+                this.fetchUserVideos(data.uid, 1, order);
             } else if (data.type === 'users') {
-                this.state.users = data.users;
-                this.renderUserList();
-                document.getElementById('userResults').style.display = 'block';
+                this.state.users = data.users || [];
+                this.state.remoteVideos = [];
+                this.state.remoteTotal = 0;
+                this.state.remoteTotalPages = 0;
+                this.renderRemoteList();
+                if (this.state.users.length > 0) {
+                    this.renderUserList();
+                    document.getElementById('userResults').style.display = 'block';
+                } else {
+                    this.toast('未找到匹配的UP主', 'info');
+                }
             }
         } catch (e) {
             this.toast('搜索失败: ' + e, 'error');
+        } finally {
+            this.setRemoteLoading(false);
         }
     },
 
     renderUserList() {
         const container = document.getElementById('userList');
         container.innerHTML = this.state.users.map(u => `
-            <div class="user-card" onclick="app.fetchUserVideos('${u.mid}')">
+            <div class="user-card" onclick="app.fetchUserVideos('${u.mid}', 1, app.state.remoteSort || 'pubdate')">
                 <img class="user-avatar" src="${u.upic}" referrerpolicy="no-referrer" alt="${u.uname}">
                 <h4>${u.uname}</h4>
                 <div class="card-meta" style="justify-content:center; margin-top:5px;">
@@ -40,13 +112,16 @@ Object.assign(app, {
         `).join('');
     },
 
-    async fetchUserVideos(uid, page = 1) {
+    async fetchUserVideos(uid, page = 1, order = 'pubdate') {
         this.state.currentUID = uid;
         this.state.currentPage = page;
+        this.state.remoteSearchMode = 'user';
+        this.state.remoteSort = order || 'pubdate';
         this.toast('正在获取视频列表...', 'info');
+        this.setRemoteLoading(true, '正在获取视频列表...');
 
         try {
-            const data = await go.main.App.GetUserVideos(uid, page, this.state.remotePageSize);
+            const data = await go.main.App.GetUserVideos(uid, page, this.state.remotePageSize, this.state.remoteSort);
             this.state.remoteVideos = data.videos || [];
             this.state.remoteTotal = data.total || 0;
             this.state.remoteTotalPages = data.total_pages || 0;
@@ -55,7 +130,45 @@ Object.assign(app, {
             this.renderRemoteList();
         } catch (e) {
             this.toast('获取视频列表失败: ' + e, 'error');
+        } finally {
+            this.setRemoteLoading(false);
         }
+    },
+
+    async fetchVideosByKeyword(keyword, page = 1, order = 'pubdate') {
+        this.state.currentPage = page;
+        this.state.remoteSearchMode = 'video';
+        this.state.remoteKeyword = keyword;
+        this.state.remoteSort = order || 'pubdate';
+        this.toast('正在搜索视频...', 'info');
+        this.setRemoteLoading(true, '正在搜索视频...');
+        try {
+            const data = await go.main.App.SearchVideos(keyword, page, this.state.remotePageSize, this.state.remoteSort);
+            this.state.users = [];
+            this.state.remoteVideos = data.videos || [];
+            this.state.remoteTotal = data.total || 0;
+            this.state.remoteTotalPages = data.total_pages || 0;
+            document.getElementById('videoListHeader').style.display = 'flex';
+            this.updateRemotePager();
+            this.renderRemoteList();
+            if (this.state.remoteVideos.length === 0) {
+                this.toast('未找到匹配视频', 'info');
+            }
+        } catch (e) {
+            this.toast('视频搜索失败: ' + e, 'error');
+        } finally {
+            this.setRemoteLoading(false);
+        }
+    },
+
+    fetchCurrentPage(page) {
+        if (this.state.remoteSearchMode === 'video') {
+            if (!this.state.remoteKeyword) return;
+            this.fetchVideosByKeyword(this.state.remoteKeyword, page, this.state.remoteSort);
+            return;
+        }
+        if (!this.state.currentUID) return;
+        this.fetchUserVideos(this.state.currentUID, page, this.state.remoteSort);
     },
 
     updateRemotePager() {
@@ -78,32 +191,32 @@ Object.assign(app, {
     },
 
     prevPage() {
-        if (this.state.currentPage > 1 && this.state.currentUID) {
-            this.fetchUserVideos(this.state.currentUID, this.state.currentPage - 1);
+        if (this.state.currentPage > 1) {
+            this.fetchCurrentPage(this.state.currentPage - 1);
         }
     },
 
     nextPage() {
-        if (this.state.currentUID && (this.state.remoteTotalPages === 0 || this.state.currentPage < this.state.remoteTotalPages)) {
-            this.fetchUserVideos(this.state.currentUID, this.state.currentPage + 1);
+        if (this.state.remoteTotalPages === 0 || this.state.currentPage < this.state.remoteTotalPages) {
+            this.fetchCurrentPage(this.state.currentPage + 1);
         }
     },
 
     firstPage() {
-        if (this.state.currentUID && this.state.currentPage !== 1) {
-            this.fetchUserVideos(this.state.currentUID, 1);
+        if (this.state.currentPage !== 1) {
+            this.fetchCurrentPage(1);
         }
     },
 
     lastPage() {
-        if (!this.state.currentUID || this.state.remoteTotalPages <= 0) return;
+        if (this.state.remoteTotalPages <= 0) return;
         if (this.state.currentPage !== this.state.remoteTotalPages) {
-            this.fetchUserVideos(this.state.currentUID, this.state.remoteTotalPages);
+            this.fetchCurrentPage(this.state.remoteTotalPages);
         }
     },
 
     jumpToPage() {
-        if (!this.state.currentUID) return;
+        if (this.state.remoteSearchMode !== 'video' && !this.state.currentUID) return;
         const input = document.getElementById('pageJumpInput');
         const target = Number(input.value || 0);
         if (!Number.isInteger(target) || target <= 0) {
@@ -112,7 +225,7 @@ Object.assign(app, {
         }
         const maxPage = this.state.remoteTotalPages || target;
         const page = Math.min(target, maxPage);
-        this.fetchUserVideos(this.state.currentUID, page);
+        this.fetchCurrentPage(page);
     },
 
     setPageSize() {
@@ -120,9 +233,7 @@ Object.assign(app, {
         const size = Number(sel.value || 30);
         if (!Number.isInteger(size) || size <= 0) return;
         this.state.remotePageSize = size;
-        if (this.state.currentUID) {
-            this.fetchUserVideos(this.state.currentUID, 1);
-        }
+        this.fetchCurrentPage(1);
     },
 
     renderRemoteList() {
@@ -150,6 +261,19 @@ Object.assign(app, {
                     <h5 class="card-title" title="${v.title}">${v.title}</h5>
                     <div class="card-meta">
                         <span>${new Date(v.created * 1000).toLocaleDateString()}</span>
+                        <span style="display:inline-flex; align-items:center; gap:4px;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path d="M3 7C3 5.89543 3.89543 5 5 5H15C16.1046 5 17 5.89543 17 7V17C17 18.1046 16.1046 19 15 19H5C3.89543 19 3 18.1046 3 17V7Z" stroke="currentColor" stroke-width="1.8"/>
+                                <path d="M21 8L17 11V13L21 16V8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                            </svg>
+                            ${v.play || '--'}
+                        </span>
+                        <span style="display:inline-flex; align-items:center; gap:4px;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path d="M5 6H19C20.1046 6 21 6.89543 21 8V14C21 15.1046 20.1046 16 19 16H11L7 19V16H5C3.89543 16 3 15.1046 3 14V8C3 6.89543 3.89543 6 5 6Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                            </svg>
+                            ${v.danmaku || '--'}
+                        </span>
                     </div>
                     <div class="card-actions">
                         <button class="btn btn-primary btn-sm"

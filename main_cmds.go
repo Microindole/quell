@@ -20,7 +20,7 @@ type downloadResultMsg struct {
 
 func fetchVideosCmd(uid string, page int) tea.Cmd {
 	return func() tea.Msg {
-		videos, total, err := crawler.GetUserVideos(uid, page, 30)
+		videos, total, err := crawler.GetUserVideos(uid, page, 30, "pubdate")
 		if err != nil {
 			return fetchResultMsg{err: err}
 		}

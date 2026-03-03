@@ -11,6 +11,16 @@
     <link rel="stylesheet" href="css/modal.css">
 </head>
 <body>
+    <div id="resizeHandles">
+        <div class="resize-handle n" data-edge="n"></div>
+        <div class="resize-handle s" data-edge="s"></div>
+        <div class="resize-handle w" data-edge="w"></div>
+        <div class="resize-handle e" data-edge="e"></div>
+        <div class="resize-handle nw" data-edge="nw"></div>
+        <div class="resize-handle ne" data-edge="ne"></div>
+        <div class="resize-handle sw" data-edge="sw"></div>
+        <div class="resize-handle se" data-edge="se"></div>
+    </div>
     <div class="app-container">
         <!-- 自定义标题栏 -->
         <div class="titlebar">
@@ -110,7 +120,15 @@
                     <h1>远程视频下载</h1>
                 </header>
                 <div class="search-bar">
-                    <input type="text" id="searchInput" placeholder="请输入 UID 或关键词搜索..." onkeypress="if(event.key==='Enter') app.searchRemote()">
+                    <select id="searchTypeSelect" onchange="app.onRemoteSearchTypeChanged()">
+                        <option value="user" selected>UP主</option>
+                        <option value="video">视频</option>
+                    </select>
+                    <select id="sortTypeSelect" onchange="app.onRemoteSortChanged()">
+                        <option value="pubdate" selected>按时间</option>
+                        <option value="click">按热度</option>
+                    </select>
+                    <input type="text" id="searchInput" placeholder="输入 UID/UP主名，或视频关键词/BV/AV/CV..." oninput="app.onRemoteKeywordInput()" onkeypress="if(event.key==='Enter') app.searchRemote()">
                     <button class="btn btn-primary" onclick="app.searchRemote()">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="11" cy="11" r="8"></circle>

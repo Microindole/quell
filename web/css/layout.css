@@ -162,3 +162,48 @@
     font-weight: 600;
     letter-spacing: -0.5px;
 }
+
+/* ===== 无边框窗口缩放热区 ===== */
+#resizeHandles {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1200;
+}
+
+.resize-handle {
+    position: fixed;
+    pointer-events: auto;
+}
+
+.resize-handle.n,
+.resize-handle.s {
+    left: 10px;
+    right: 10px;
+    height: 10px;
+}
+
+.resize-handle.w,
+.resize-handle.e {
+    top: 10px;
+    bottom: 10px;
+    width: 10px;
+}
+
+.resize-handle.n { top: 0; cursor: ns-resize; }
+.resize-handle.s { bottom: 0; cursor: ns-resize; }
+.resize-handle.w { left: 0; cursor: ew-resize; }
+.resize-handle.e { right: 0; cursor: ew-resize; }
+
+.resize-handle.nw,
+.resize-handle.ne,
+.resize-handle.sw,
+.resize-handle.se {
+    width: 16px;
+    height: 16px;
+}
+
+.resize-handle.nw { top: 0; left: 0; cursor: nwse-resize; }
+.resize-handle.ne { top: 0; right: 0; cursor: nesw-resize; }
+.resize-handle.sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.resize-handle.se { bottom: 0; right: 0; cursor: nwse-resize; }

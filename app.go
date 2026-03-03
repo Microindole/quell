@@ -37,6 +37,13 @@ type LoginPollResult struct {
 	Message string `json:"message"`
 }
 
+type WindowBounds struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+	W int `json:"w"`
+	H int `json:"h"`
+}
+
 func (a *App) remoteOutputDir() string {
 	if a.cfg.OutputDir != "" {
 		return a.cfg.OutputDir
@@ -262,16 +269,40 @@ type VideoListResult struct {
 	TotalPages int                     `json:"total_pages"`
 }
 
-func (a *App) GetUserVideos(uid string, page int, pageSize int) (*VideoListResult, error) {
+func (a *App) GetUserVideos(uid string, page int, pageSize int, order string) (*VideoListResult, error) {
 	if page <= 0 {
 		page = 1
 	}
 	if pageSize <= 0 {
 		pageSize = 30
 	}
-	videos, total, err := crawler.GetUserVideos(uid, page, pageSize)
+	videos, total, err := crawler.GetUserVideos(uid, page, pageSize, order)
 	if err != nil {
 		return nil, fmt.Errorf("获取视频列表失败: %w", err)
+	}
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+	}
+	return &VideoListResult{
+		Videos:     videos,
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+	}, nil
+}
+
+func (a *App) SearchVideos(keyword string, page int, pageSize int, order string) (*VideoListResult, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 30
+	}
+	videos, total, err := crawler.SearchVideos(keyword, page, pageSize, order)
+	if err != nil {
+		return nil, fmt.Errorf("搜索视频失败: %w", err)
 	}
 	totalPages := 0
 	if total > 0 {
@@ -462,6 +493,23 @@ func (a *App) OpenFile(path string) error {
 
 func (a *App) OpenBrowserURL(rawURL string) {
 	runtime.BrowserOpenURL(a.ctx, rawURL)
+}
+
+func (a *App) GetWindowBounds() WindowBounds {
+	x, y := runtime.WindowGetPosition(a.ctx)
+	w, h := runtime.WindowGetSize(a.ctx)
+	return WindowBounds{X: x, Y: y, W: w, H: h}
+}
+
+func (a *App) SetWindowBounds(x, y, w, h int) {
+	if w < 900 {
+		w = 900
+	}
+	if h < 600 {
+		h = 600
+	}
+	runtime.WindowSetPosition(a.ctx, x, y)
+	runtime.WindowSetSize(a.ctx, w, h)
 }
 
 // --- 窗口控制 ---

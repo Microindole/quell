@@ -24,6 +24,11 @@ const app = {
         remoteTotal: 0,
         remoteTotalPages: 0,
         remotePageSize: 30,
+        remoteSearchMode: 'user',
+        remoteKeyword: '',
+        remoteSort: 'pubdate',
+        remoteSearchTimer: null,
+        remoteSearching: false,
         pageSelectBvid: '',
         pageSelectTitle: '',
         pageSelectLength: '',
@@ -42,6 +47,8 @@ const app = {
         this.loadConfig();
         this.setupEvents();
         this.setupTheme();
+        this.setupResizeHandles();
+        if (this.onRemoteSearchTypeChanged) this.onRemoteSearchTypeChanged();
         this.scanLocal();
     },
 
@@ -88,6 +95,135 @@ const app = {
         }
         const sel = document.getElementById('cfgTheme');
         if (sel) sel.value = theme;
+    },
+
+    setupResizeHandles() {
+        const handles = document.querySelectorAll('.resize-handle');
+        if (!handles || handles.length === 0) return;
+
+        let state = null;
+        let ticking = false;
+        const clearResizeState = () => {
+            state = null;
+            document.removeEventListener('pointermove', onPointerMove, true);
+            document.removeEventListener('pointerup', onPointerUp, true);
+            document.removeEventListener('pointercancel', onPointerUp, true);
+            document.removeEventListener('mousemove', onMouseMoveFallback, true);
+            document.removeEventListener('mouseup', onPointerUp, true);
+        };
+
+        const applyResize = () => {
+            ticking = false;
+            if (!state) return;
+            const dx = state.lastMouseX - state.startMouseX;
+            const dy = state.lastMouseY - state.startMouseY;
+
+            let x = state.startX;
+            let y = state.startY;
+            let w = state.startW;
+            let h = state.startH;
+            const edge = state.edge;
+            const minW = 900;
+            const minH = 600;
+
+            if (edge.includes('e')) w = state.startW + dx;
+            if (edge.includes('s')) h = state.startH + dy;
+            if (edge.includes('w')) {
+                w = state.startW - dx;
+                x = state.startX + dx;
+            }
+            if (edge.includes('n')) {
+                h = state.startH - dy;
+                y = state.startY + dy;
+            }
+
+            if (w < minW) {
+                if (edge.includes('w')) x -= (minW - w);
+                w = minW;
+            }
+            if (h < minH) {
+                if (edge.includes('n')) y -= (minH - h);
+                h = minH;
+            }
+
+            go.main.App.SetWindowBounds(Math.round(x), Math.round(y), Math.round(w), Math.round(h)).catch(() => {});
+        };
+
+        const onPointerMove = (e) => {
+            if (!state) return;
+            if (typeof e.buttons === 'number' && e.buttons === 0) {
+                clearResizeState();
+                return;
+            }
+            state.lastMouseX = e.screenX;
+            state.lastMouseY = e.screenY;
+            if (!ticking) {
+                ticking = true;
+                requestAnimationFrame(applyResize);
+            }
+        };
+
+        // Fallback for environments where pointer events are incomplete.
+        const onMouseMoveFallback = (e) => {
+            if (!state) return;
+            if (typeof e.buttons === 'number' && e.buttons === 0) {
+                clearResizeState();
+                return;
+            }
+            state.lastMouseX = e.screenX;
+            state.lastMouseY = e.screenY;
+            if (!ticking) {
+                ticking = true;
+                requestAnimationFrame(applyResize);
+            }
+        };
+
+        const onPointerUp = () => clearResizeState();
+
+        window.addEventListener('blur', clearResizeState, true);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) clearResizeState();
+        });
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') clearResizeState();
+        }, true);
+
+        handles.forEach((handle) => {
+            handle.addEventListener('pointerdown', async (e) => {
+                if (e.button !== 0) return;
+                if (window.runtime && window.runtime.WindowIsMaximised) {
+                    try {
+                        const isMax = await window.runtime.WindowIsMaximised();
+                        if (isMax) return;
+                    } catch (_) {}
+                }
+                e.preventDefault();
+                e.stopPropagation();
+
+                const bounds = await go.main.App.GetWindowBounds();
+                state = {
+                    edge: handle.dataset.edge || '',
+                    startX: bounds.x,
+                    startY: bounds.y,
+                    startW: bounds.w,
+                    startH: bounds.h,
+                    startMouseX: e.screenX,
+                    startMouseY: e.screenY,
+                    lastMouseX: e.screenX,
+                    lastMouseY: e.screenY
+                };
+                try {
+                    if (handle.setPointerCapture && e.pointerId !== undefined) {
+                        handle.setPointerCapture(e.pointerId);
+                    }
+                } catch (_) {}
+                document.addEventListener('pointermove', onPointerMove, true);
+                document.addEventListener('pointerup', onPointerUp, true);
+                document.addEventListener('pointercancel', onPointerUp, true);
+                document.addEventListener('mousemove', onMouseMoveFallback, true);
+                document.addEventListener('mouseup', onPointerUp, true);
+            });
+        });
     },
 
     // --- 窗口控制 ---

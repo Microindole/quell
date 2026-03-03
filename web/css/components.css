@@ -145,13 +145,48 @@ input[type="password"]:focus {
 
 /* ===== 搜索栏 ===== */
 .search-bar {
-    display: flex;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: 150px 150px minmax(260px, 1fr) 110px;
+    gap: 12px;
     margin-bottom: 24px;
-    max-width: 600px;
+    max-width: 900px;
+    align-items: center;
 }
 
-.search-bar input { flex: 1; }
+.search-bar input,
+.search-bar select {
+    height: 46px;
+    font-size: 15px;
+}
+
+.search-bar input {
+    min-width: 220px;
+}
+
+.search-bar .btn {
+    height: 46px;
+    justify-content: center;
+    white-space: nowrap;
+    padding: 0 16px;
+}
+
+@media (max-width: 1000px) {
+    .search-bar {
+        grid-template-columns: 1fr 1fr;
+        max-width: 100%;
+    }
+
+    .search-bar input {
+        grid-column: 1 / -1;
+        min-width: 0;
+    }
+
+    .search-bar .btn {
+        grid-column: 2;
+        justify-self: end;
+        min-width: 110px;
+    }
+}
 
 .remote-toolbar {
     display: flex;

@@ -17,6 +17,7 @@ func startGUI() {
 		Title:     "Quell",
 		Width:     1200,
 		Height:    800,
+		DisableResize: false,
 		MinWidth:  900,
 		MinHeight: 600,
 		Frameless: true,
