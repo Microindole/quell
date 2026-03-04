@@ -1,0 +1,83 @@
+name: Auto Format Go
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: autofmt-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  gofmt:
+    name: Auto-fix gofmt
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      GOTOOLCHAIN: go1.25.7
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run gofmt
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_branch="${{ github.base_ref }}"
+          else
+            base_branch="${DEFAULT_BRANCH}"
+          fi
+
+          git fetch --no-tags origin "${base_branch}:refs/remotes/origin/${base_branch}"
+          mapfile -t files < <(git diff --name-only --diff-filter=ACMR "origin/${base_branch}...HEAD" -- '*.go')
+
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No changed Go files to format."
+            exit 0
+          fi
+
+          gofmt -w "${files[@]}"
+
+      - name: Commit and push if changed
+        shell: bash
+        env:
+          BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No formatting changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ -n "${BOT_TOKEN:-}" ]; then
+            git remote set-url origin "https://x-access-token:${BOT_TOKEN}@github.com/${{ github.repository }}.git"
+          else
+            git remote set-url origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          fi
+
+          git add -A
+          git commit -m "chore(fmt): auto-format Go files"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git push origin "HEAD:${{ github.head_ref }}"
+          else
+            git push origin HEAD
+          fi
