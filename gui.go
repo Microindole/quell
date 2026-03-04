@@ -14,13 +14,13 @@ func startGUI() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:     "Quell",
-		Width:     1200,
-		Height:    800,
+		Title:         "Quell",
+		Width:         1200,
+		Height:        800,
 		DisableResize: false,
-		MinWidth:  900,
-		MinHeight: 600,
-		Frameless: true,
+		MinWidth:      900,
+		MinHeight:     600,
+		Frameless:     true,
 		AssetServer: &assetserver.Options{
 			Assets: webFS,
 		},
