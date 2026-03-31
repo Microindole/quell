@@ -1,0 +1,113 @@
+:root {
+  /* 核心颜色：深蓝色与浅蓝渐变 */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(135deg, #007aff 0%, #60a5fa 100%);
+  --vp-home-hero-image-background-image: radial-gradient(circle at center, rgba(0, 122, 255, 0.1) 0%, transparent 70%);
+  --vp-c-brand: #007aff;
+  --vp-c-brand-light: #60a5fa;
+  --vp-c-brand-lighter: #93c5fd;
+  --vp-c-brand-dark: #1d4ed8;
+  --vp-c-brand-darker: #1e3a8a;
+}
+
+/* 沉浸式网格背景：调低亮度，增加深邃感 */
+.VPHome {
+  position: relative;
+  background-image: 
+    radial-gradient(circle at 2px 2px, rgba(255, 255, 255, 0.03) 1px, transparent 0);
+  background-size: 40px 40px;
+}
+
+/* Hero 区域：左侧对齐，增强视觉张力 */
+.VPHero {
+  min-height: 65vh !important;
+  display: flex !important;
+  align-items: center !important;
+  padding: 60px 48px !important;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* 标题入场动画：由下至上滑入 */
+.name, .text, .tagline, .actions {
+  animation: slide-up 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  opacity: 0;
+}
+
+.name { animation-delay: 0.1s; font-size: 80px !important; font-weight: 900 !important; }
+.text { animation-delay: 0.2s; }
+.tagline { animation-delay: 0.3s; }
+.actions { animation-delay: 0.4s; }
+
+@keyframes slide-up {
+  from { transform: translateY(30px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* 右侧 Logo 动效：悬浮感 */
+.VPHero .image-container {
+  animation: float 6s ease-in-out infinite;
+  filter: drop-shadow(0 0 30px rgba(0, 122, 255, 0.15));
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-20px); }
+}
+
+/* 特性卡片区域：紧凑排列 */
+.VPFeatures {
+  padding: 40px 24px !important;
+}
+
+/* 界面全览：适度下移，建立滚动节奏 */
+.showcase { 
+  margin-top: 100px !important;
+  padding: 80px 0 !important; 
+  text-align: center; 
+}
+
+/* 玻璃态卡片：蓝色描边 */
+.VPFeature {
+  background: rgba(255, 255, 255, 0.02) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.VPFeature:hover {
+  border-color: #007aff !important;
+  background: rgba(0, 122, 255, 0.03) !important;
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+}
+
+/* 技术栈图标样式：大幅提升至 64px */
+.tech-stack {
+  display: flex;
+  justify-content: center;
+  gap: 64px;
+  margin: 80px 0;
+  opacity: 0.25;
+  transition: opacity 0.5s ease;
+}
+
+.tech-stack:hover {
+  opacity: 1;
+}
+
+.tech-icon { 
+  width: 64px; 
+  height: 64px; 
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.tech-stack a:hover .tech-icon {
+  transform: scale(1.15) translateY(-5px);
+  filter: drop-shadow(0 10px 20px rgba(0, 122, 255, 0.3));
+}
+
+/* 详情页图片样式：简洁蓝白边框 */
+.vp-doc img {
+  border: 1px solid rgba(0, 122, 255, 0.1);
+  border-radius: 8px;
+  margin: 24px 0;
+}

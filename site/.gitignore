@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# VitePress Build Outputs
+.vitepress/dist/**
+.vitepress/cache/**
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# System Files
+.DS_Store
+Thumbs.db
